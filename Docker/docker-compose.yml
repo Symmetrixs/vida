@@ -1,0 +1,35 @@
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: Docker/Dockerfile.backend
+    container_name: vida-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    restart: unless-stopped
+    volumes:
+      - ../Backend:/app
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: Docker/Dockerfile.frontend
+    container_name: vida-frontend
+    ports:
+      - "3000:80"
+    env_file:
+      - .env
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+networks:
+  default:
+    name: vida-network
