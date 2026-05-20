@@ -37,16 +37,12 @@ class InspectionUpdate(BaseModel):
 @router.get("/")
 def list_inspections(current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    if current_user["role"] in ("admin", "facility_manager"):
-        result = supabase.table("inspections").select("*, buildings(name, code)").order("created_at", desc=True).execute()
-    else:
-        result = (
-            supabase.table("inspections")
-            .select("*, buildings(name, code)")
-            .eq("inspector_id", current_user["id"])
-            .order("created_at", desc=True)
-            .execute()
-        )
+    result = (
+        supabase.table("inspections")
+        .select("*, buildings(name, code), users!inspector_id(name)")
+        .order("created_at", desc=True)
+        .execute()
+    )
     return result.data or []
 
 
