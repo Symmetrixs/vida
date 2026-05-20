@@ -153,7 +153,7 @@ export default function TopNavBar({ onMenuToggle }) {
             </div>
             <div className="hidden sm:flex flex-col items-start">
               <span className="text-sm font-medium text-slate-800 dark:text-slate-200 leading-tight">{user?.name || "User"}</span>
-              <span className="text-[11px] text-slate-400 capitalize">{user?.role || "inspector"}</span>
+              <span className="text-[11px] text-slate-400 capitalize">{user?.role?.replace(/_/g, " ") || "inspector"}</span>
             </div>
             <ChevronDown size={14} className="text-slate-400" />
           </button>

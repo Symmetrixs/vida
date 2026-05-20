@@ -6,6 +6,7 @@ import TopNavBar from "../../components/TopNavBar.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
 import toast from "react-hot-toast";
 import clsx from "clsx";
+import logo from "../../assets/company-logo.png";
 
 const links = [
   { to: "/inspector",            label: "Home",        icon: Home,          end: true },
@@ -19,7 +20,7 @@ const links = [
 ];
 
 function Sidebar({ onClose }) {
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const navigate = useNavigate();
   const handleLogout = async () => { await logout(); toast.success("Logged out"); navigate("/login"); };
 
@@ -27,12 +28,10 @@ function Sidebar({ onClose }) {
     <div className="flex flex-col h-full bg-white dark:bg-slate-900 border-r border-slate-100 dark:border-slate-800">
       <div className="px-5 py-5 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-600 to-vida-accent flex items-center justify-center shadow">
-            <span className="text-white font-black text-lg leading-none">V</span>
-          </div>
+          <img src={logo} alt="VIDA" className="w-9 h-9 rounded-xl object-contain shadow" />
           <div>
             <p className="font-bold text-slate-900 dark:text-white text-base leading-tight">VIDA</p>
-            <p className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-widest">Inspector</p>
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-widest">{user?.role?.replace(/_/g, " ") || "Inspector"}</p>
           </div>
         </div>
         <button onClick={onClose} className="lg:hidden btn-ghost p-1.5 rounded-lg"><X size={18}/></button>
