@@ -1,10 +1,27 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Eye, EyeOff, LogIn, AlertCircle } from "lucide-react";
+import { Eye, EyeOff, LogIn, AlertCircle, Clock, XCircle } from "lucide-react";
 import { useAuth } from "../../context/AuthContext.jsx";
 import toast from "react-hot-toast";
 import logo from "../../assets/company-logo.png";
+
+const STATUS_SCREENS = {
+  pending: {
+    icon: Clock,
+    iconClass: "text-amber-500",
+    bgClass: "bg-amber-100 dark:bg-amber-900/30",
+    title: "Account Pending Approval",
+    message: "Your administrator account has not been approved yet. Please wait for an existing administrator to review your request.",
+  },
+  rejected: {
+    icon: XCircle,
+    iconClass: "text-red-500",
+    bgClass: "bg-red-100 dark:bg-red-900/30",
+    title: "Account Rejected",
+    message: "Your administrator account request has been rejected. Please contact your system administrator for assistance.",
+  },
+};
 
 export default function Login() {
   const { login } = useAuth();
@@ -13,22 +30,32 @@ export default function Login() {
   const [showPw, setShowPw]   = useState(false);
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState("");
+  const [statusScreen, setStatusScreen] = useState(null);
 
   const handleChange = (e) => {
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
     setError("");
+    setStatusScreen(null);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setStatusScreen(null);
     try {
       const user = await login(form.email, form.password);
       toast.success(`Welcome back, ${user.name}!`);
       navigate(user.role === "admin" ? "/admin" : "/inspector", { replace: true });
     } catch (err) {
-      setError(err.response?.data?.detail || "Invalid email or password");
+      const detail = err.response?.data?.detail || "";
+      if (detail === "Account pending approval") {
+        setStatusScreen("pending");
+      } else if (detail === "Account rejected") {
+        setStatusScreen("rejected");
+      } else {
+        setError(detail || "Invalid email or password");
+      }
     } finally {
       setLoading(false);
     }
@@ -71,91 +98,123 @@ export default function Login() {
         </div>
 
         <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-8">
-          <div className="mb-6">
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white">Sign in</h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Enter your credentials to continue</p>
-          </div>
 
-          {error && (
+          {statusScreen ? (
             <motion.div
-              initial={{ opacity: 0, y: -8 }}
+              key={statusScreen}
+              initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              className="flex items-center gap-2 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 rounded-xl text-sm mb-5"
+              className="text-center py-2"
             >
-              <AlertCircle size={16} className="shrink-0" />
-              {error}
+              {(() => {
+                const s = STATUS_SCREENS[statusScreen];
+                const Icon = s.icon;
+                return (
+                  <>
+                    <div className={`inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 ${s.bgClass}`}>
+                      <Icon size={32} className={s.iconClass} />
+                    </div>
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-2">{s.title}</h2>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">{s.message}</p>
+                    <button
+                      onClick={() => { setStatusScreen(null); setForm({ email: "", password: "" }); }}
+                      className="btn-secondary w-full justify-center"
+                    >
+                      Try a different account
+                    </button>
+                  </>
+                );
+              })()}
             </motion.div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div>
-              <label className="label">Email address</label>
-              <input
-                name="email"
-                type="email"
-                value={form.email}
-                onChange={handleChange}
-                className="input"
-                placeholder="you@utem.edu.my"
-                autoComplete="email"
-                required
-              />
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="label mb-0">Password</label>
-                <Link to="/forgot-password" className="text-xs text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300 hover:underline">
-                  Forgot password?
-                </Link>
+          ) : (
+            <>
+              <div className="mb-6">
+                <h2 className="text-xl font-bold text-slate-900 dark:text-white">Sign in</h2>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Enter your credentials to continue</p>
               </div>
-              <div className="relative">
-                <input
-                  name="password"
-                  type={showPw ? "text" : "password"}
-                  value={form.password}
-                  onChange={handleChange}
-                  className="input pr-10"
-                  placeholder="••••••••"
-                  autoComplete="current-password"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPw((s) => !s)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+
+              {error && (
+                <motion.div
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="flex items-center gap-2 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 rounded-xl text-sm mb-5"
                 >
-                  {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
-              </div>
-            </div>
-
-            <motion.button
-              type="submit"
-              disabled={loading}
-              className="btn-primary w-full py-2.5 mt-2"
-              whileTap={{ scale: 0.98 }}
-            >
-              {loading ? (
-                <span className="flex items-center gap-2">
-                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
-                  </svg>
-                  Signing in...
-                </span>
-              ) : (
-                <span className="flex items-center gap-2"><LogIn size={16}/> Sign in</span>
+                  <AlertCircle size={16} className="shrink-0" />
+                  {error}
+                </motion.div>
               )}
-            </motion.button>
-          </form>
 
-          <p className="text-center text-sm text-slate-500 dark:text-slate-400 mt-6">
-            Don't have an account?{" "}
-            <Link to="/register" className="text-primary-600 dark:text-primary-400 font-medium hover:underline">
-              Register
-            </Link>
-          </p>
+              <form onSubmit={handleSubmit} className="space-y-5">
+                <div>
+                  <label className="label">Email address</label>
+                  <input
+                    name="email"
+                    type="email"
+                    value={form.email}
+                    onChange={handleChange}
+                    className="input"
+                    placeholder="you@utem.edu.my"
+                    autoComplete="email"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="label mb-0">Password</label>
+                    <Link to="/forgot-password" className="text-xs text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300 hover:underline">
+                      Forgot password?
+                    </Link>
+                  </div>
+                  <div className="relative">
+                    <input
+                      name="password"
+                      type={showPw ? "text" : "password"}
+                      value={form.password}
+                      onChange={handleChange}
+                      className="input pr-10"
+                      placeholder="••••••••"
+                      autoComplete="current-password"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPw((s) => !s)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                    >
+                      {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                <motion.button
+                  type="submit"
+                  disabled={loading}
+                  className="btn-primary w-full py-2.5 mt-2"
+                  whileTap={{ scale: 0.98 }}
+                >
+                  {loading ? (
+                    <span className="flex items-center gap-2">
+                      <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                      </svg>
+                      Signing in...
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-2"><LogIn size={16}/> Sign in</span>
+                  )}
+                </motion.button>
+              </form>
+
+              <p className="text-center text-sm text-slate-500 dark:text-slate-400 mt-6">
+                Don't have an account?{" "}
+                <Link to="/register" className="text-primary-600 dark:text-primary-400 font-medium hover:underline">
+                  Register
+                </Link>
+              </p>
+            </>
+          )}
         </div>
 
         <p className="text-center text-xs text-primary-400 mt-6">

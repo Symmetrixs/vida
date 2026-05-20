@@ -45,14 +45,14 @@ def get_stats(admin: dict = Depends(require_admin)):
 @router.get("/users")
 def list_users(admin: dict = Depends(require_admin)):
     supabase = get_supabase()
-    result = supabase.table("users").select("id, name, email, role, is_active, created_at").execute()
+    result = supabase.table("users").select("id, name, email, role, is_active, is_approved, created_at").execute()
     return result.data or []
 
 
 @router.get("/users/{user_id}")
 def get_user(user_id: str, admin: dict = Depends(require_admin)):
     supabase = get_supabase()
-    result = supabase.table("users").select("id, name, email, role, is_active, created_at").eq("id", user_id).single().execute()
+    result = supabase.table("users").select("id, name, email, role, is_active, is_approved, created_at").eq("id", user_id).single().execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="User not found")
     return result.data
@@ -75,6 +75,43 @@ def delete_user(user_id: str, admin: dict = Depends(require_admin)):
     supabase = get_supabase()
     supabase.table("users").delete().eq("id", user_id).execute()
     return {"message": "User deleted"}
+
+
+@router.get("/pending-approvals")
+def pending_approvals(admin: dict = Depends(require_admin)):
+    supabase = get_supabase()
+    result = (
+        supabase.table("users")
+        .select("id, name, email, role, created_at")
+        .eq("role", "admin")
+        .is_("is_approved", "null")
+        .execute()
+    )
+    return result.data or []
+
+
+@router.patch("/users/{user_id}/approve")
+def approve_user(user_id: str, admin: dict = Depends(require_admin)):
+    supabase = get_supabase()
+    result = supabase.table("users").update({
+        "is_approved": True,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }).eq("id", user_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="User not found")
+    return result.data[0]
+
+
+@router.patch("/users/{user_id}/reject")
+def reject_user(user_id: str, admin: dict = Depends(require_admin)):
+    supabase = get_supabase()
+    result = supabase.table("users").update({
+        "is_approved": False,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }).eq("id", user_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="User not found")
+    return result.data[0]
 
 
 @router.get("/analytics")

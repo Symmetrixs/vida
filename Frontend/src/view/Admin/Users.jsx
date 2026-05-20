@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Users as UsersIcon, Plus, Search, Pencil, Trash2, X, Check } from "lucide-react";
+import { Users as UsersIcon, Search, Pencil, Trash2, X, Check, ShieldCheck, ShieldX, Clock } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
 
@@ -52,32 +52,124 @@ function UserModal({ user, onClose, onSaved }) {
 
 export default function Users() {
   const [users, setUsers] = useState([]);
+  const [pending, setPending] = useState([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [editUser, setEditUser] = useState(null);
 
-  const fetchUsers = () => {
+  const fetchAll = () => {
     setLoading(true);
-    api.get("/admin/users").then(r => setUsers(r.data)).catch(() => toast.error("Failed to load users")).finally(() => setLoading(false));
+    Promise.all([
+      api.get("/admin/users"),
+      api.get("/admin/pending-approvals"),
+    ]).then(([u, p]) => {
+      setUsers(u.data);
+      setPending(p.data);
+    }).catch(() => toast.error("Failed to load users")).finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchUsers(); }, []);
+  useEffect(() => { fetchAll(); }, []);
 
   const handleDelete = async (id) => {
     if (!confirm("Delete this user?")) return;
     await api.delete(`/admin/users/${id}`);
     toast.success("User deleted");
-    fetchUsers();
+    fetchAll();
   };
 
-  const filtered = users.filter(u => u.name?.toLowerCase().includes(search.toLowerCase()) || u.email?.toLowerCase().includes(search.toLowerCase()));
+  const handleApprove = async (id) => {
+    try {
+      await api.patch(`/admin/users/${id}/approve`);
+      toast.success("Admin account approved");
+      fetchAll();
+    } catch { toast.error("Failed to approve"); }
+  };
+
+  const handleReject = async (id) => {
+    if (!confirm("Reject this admin account request?")) return;
+    try {
+      await api.patch(`/admin/users/${id}/reject`);
+      toast.success("Admin account rejected");
+      fetchAll();
+    } catch { toast.error("Failed to reject"); }
+  };
+
+  const filtered = users.filter(u =>
+    u.name?.toLowerCase().includes(search.toLowerCase()) ||
+    u.email?.toLowerCase().includes(search.toLowerCase())
+  );
+
   const roleColor = (r) => ({ admin: "badge-red", facility_manager: "badge-blue", inspector: "badge-green" }[r] || "badge-gray");
+
+  const approvalBadge = (u) => {
+    if (u.role !== "admin") return null;
+    if (u.is_approved === true) return <span className="badge-green">approved</span>;
+    if (u.is_approved === false) return <span className="badge-red">rejected</span>;
+    return <span className="badge-yellow">pending</span>;
+  };
 
   return (
     <div className="space-y-6">
       <div className="page-header flex items-center justify-between">
         <div><h1 className="page-title flex items-center gap-2"><UsersIcon size={22}/> User Management</h1><p className="page-subtitle">Manage inspectors and administrators</p></div>
       </div>
+
+      <AnimatePresence>
+        {pending.length > 0 && (
+          <motion.div
+            className="card overflow-hidden border-amber-200 dark:border-amber-800"
+            initial={{ opacity: 0, y: -12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            style={{ borderColor: undefined }}
+          >
+            <div className="px-5 py-3.5 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-100 dark:border-amber-800/50 flex items-center gap-2">
+              <Clock size={16} className="text-amber-600 dark:text-amber-400" />
+              <span className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+                Pending Admin Approvals ({pending.length})
+              </span>
+            </div>
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
+              {pending.map((u, i) => (
+                <motion.div
+                  key={u.id}
+                  className="flex items-center gap-4 px-5 py-3.5"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: i * 0.04 }}
+                >
+                  <div className="w-9 h-9 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-amber-700 dark:text-amber-300 font-bold text-sm shrink-0">
+                    {u.name?.[0]?.toUpperCase() || "?"}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{u.name}</p>
+                    <p className="text-xs text-slate-400 truncate">{u.email}</p>
+                  </div>
+                  <span className="text-xs text-slate-400 hidden sm:block">
+                    {new Date(u.created_at).toLocaleDateString("en-MY")}
+                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <motion.button
+                      onClick={() => handleApprove(u.id)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-xs font-medium transition-colors"
+                      whileTap={{ scale: 0.96 }}
+                    >
+                      <ShieldCheck size={13}/> Approve
+                    </motion.button>
+                    <motion.button
+                      onClick={() => handleReject(u.id)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-100 hover:bg-red-200 dark:bg-red-900/30 dark:hover:bg-red-900/50 text-red-700 dark:text-red-400 text-xs font-medium transition-colors"
+                      whileTap={{ scale: 0.96 }}
+                    >
+                      <ShieldX size={13}/> Reject
+                    </motion.button>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="card p-4 flex items-center gap-3">
         <Search size={16} className="text-slate-400 shrink-0"/>
@@ -103,6 +195,7 @@ export default function Users() {
                   <p className="text-xs text-slate-400 truncate">{u.email}</p>
                 </div>
                 <span className={roleColor(u.role)}>{u.role?.replace("_", " ")}</span>
+                {approvalBadge(u)}
                 <span className={u.is_active ? "badge-green" : "badge-gray"}>{u.is_active ? "Active" : "Inactive"}</span>
                 <div className="flex items-center gap-1">
                   <button onClick={() => setEditUser(u)} className="btn-ghost p-1.5 rounded-lg"><Pencil size={14}/></button>
@@ -115,7 +208,7 @@ export default function Users() {
       </div>
 
       <AnimatePresence>
-        {editUser && <UserModal user={editUser} onClose={() => setEditUser(null)} onSaved={() => { setEditUser(null); fetchUsers(); }} />}
+        {editUser && <UserModal user={editUser} onClose={() => setEditUser(null)} onSaved={() => { setEditUser(null); fetchAll(); }} />}
       </AnimatePresence>
     </div>
   );

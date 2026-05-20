@@ -12,14 +12,18 @@ function BuildingModal({ building, onClose, onSaved }) {
   const handleSave = async () => {
     setLoading(true);
     try {
-      if (isEdit) await api.put(`/buildings/${building.id}`, form);
-      else await api.post("/buildings/", form);
+      const payload = {
+        ...form,
+        floors: form.floors ? parseInt(form.floors) : 1,
+        year_built: form.year_built ? parseInt(form.year_built) : null,
+      };
+      if (isEdit) await api.put(`/buildings/${building.id}`, payload);
+      else await api.post("/buildings/", payload);
       toast.success(isEdit ? "Building updated" : "Building created");
       onSaved();
     } catch (e) { toast.error(e.response?.data?.detail || "Failed"); }
     finally { setLoading(false); }
   };
-
   return (
     <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={(e) => e.target === e.currentTarget && onClose()}>

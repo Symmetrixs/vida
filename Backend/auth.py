@@ -174,12 +174,15 @@ def register(user: UserRegister):
         raise HTTPException(status_code=400, detail="Email already registered")
 
     hashed = hash_password(user.password)
+    is_admin_role = user.role == "admin"
+
     new_user = {
         "name": user.name,
         "email": user.email,
         "password_hash": hashed,
         "role": user.role,
         "is_active": True,
+        "is_approved": None if is_admin_role else True,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     result = supabase.table("users").insert(new_user).execute()
@@ -187,6 +190,19 @@ def register(user: UserRegister):
         raise HTTPException(status_code=500, detail="Registration failed")
 
     created = result.data[0]
+
+    if is_admin_role:
+        return {
+            "status": "pending",
+            "message": "Your admin account is pending approval from an existing administrator.",
+            "user": {
+                "id": created["id"],
+                "name": created["name"],
+                "email": created["email"],
+                "role": created["role"],
+            },
+        }
+
     token = create_access_token({"sub": str(created["id"]), "role": created["role"]})
     return Token(access_token=token, token_type="bearer", user={
         "id": created["id"], "name": created["name"],
@@ -207,6 +223,13 @@ def login(form_data: UserLogin):
 
     if not user.get("is_active", True):
         raise HTTPException(status_code=403, detail="Account deactivated")
+
+    if user.get("role") == "admin":
+        approved = user.get("is_approved")
+        if approved is False:
+            raise HTTPException(status_code=403, detail="Account rejected")
+        if approved is None:
+            raise HTTPException(status_code=403, detail="Account pending approval")
 
     token = create_access_token({"sub": str(user["id"]), "role": user["role"]})
     return Token(access_token=token, token_type="bearer", user={

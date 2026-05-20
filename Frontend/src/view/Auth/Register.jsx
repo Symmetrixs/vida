@@ -1,19 +1,21 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
-import { Eye, EyeOff, UserPlus, AlertCircle } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Eye, EyeOff, UserPlus, AlertCircle, Clock, ShieldCheck } from "lucide-react";
 import { useAuth } from "../../context/AuthContext.jsx";
+import api from "../../api/axios.js";
 import toast from "react-hot-toast";
 import logo from "../../assets/company-logo.png";
 
 export default function Register() {
-  const { register } = useAuth();
+  const { updateUser } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState({ name: "", email: "", password: "", confirm: "", role: "inspector" });
   const [showPw, setShowPw] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [pendingAdmin, setPendingAdmin] = useState(false);
 
   const handleChange = (e) => {
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
@@ -26,15 +28,72 @@ export default function Register() {
     if (form.password.length < 6) { setError("Password must be at least 6 characters"); return; }
     setLoading(true);
     try {
-      const user = await register(form.name, form.email, form.password, form.role);
+      const res = await api.post("/auth/register", {
+        name: form.name,
+        email: form.email,
+        password: form.password,
+        role: form.role,
+      });
+
+      if (res.data.status === "pending") {
+        setPendingAdmin(true);
+        return;
+      }
+
+      const { access_token, user: userData } = res.data;
+      localStorage.setItem("vida-token", access_token);
+      updateUser(userData);
       toast.success("Account created successfully!");
-      navigate(user.role === "admin" ? "/admin" : "/inspector", { replace: true });
+      navigate(userData.role === "admin" ? "/admin" : "/inspector", { replace: true });
     } catch (err) {
       setError(err.response?.data?.detail || "Registration failed");
     } finally {
       setLoading(false);
     }
   };
+
+  if (pendingAdmin) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-primary-950 via-primary-900 to-vida-navy flex items-center justify-center p-4">
+        <motion.div
+          className="w-full max-w-md"
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+        >
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-8 text-center">
+            <motion.div
+              className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-amber-100 dark:bg-amber-900/30 mb-5"
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ type: "spring", delay: 0.1, stiffness: 200 }}
+            >
+              <Clock size={36} className="text-amber-500" />
+            </motion.div>
+            <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Pending Approval</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mb-2 leading-relaxed">
+              Your admin account has been created and is awaiting approval from an existing administrator.
+            </p>
+            <p className="text-xs text-slate-400 dark:text-slate-500 mb-8">
+              You will be able to sign in once your account has been approved. Please contact your system administrator if this takes too long.
+            </p>
+            <div className="flex flex-col gap-3">
+              <Link to="/login" className="btn-primary w-full justify-center">Go to Sign In</Link>
+              <button
+                onClick={() => { setPendingAdmin(false); setForm({ name: "", email: "", password: "", confirm: "", role: "inspector" }); }}
+                className="btn-secondary w-full justify-center"
+              >
+                Register a different account
+              </button>
+            </div>
+          </div>
+          <p className="text-center text-xs text-primary-400 mt-6">
+            © {new Date().getFullYear()} UTeM – Faculty of ICT
+          </p>
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary-950 via-primary-900 to-vida-navy flex items-center justify-center p-4">
@@ -74,7 +133,25 @@ export default function Register() {
               <select name="role" value={form.role} onChange={handleChange} className="input">
                 <option value="inspector">Inspector</option>
                 <option value="facility_manager">Facility Manager</option>
+                <option value="admin">Administrator</option>
               </select>
+              <AnimatePresence>
+                {form.role === "admin" && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="overflow-hidden"
+                  >
+                    <div className="mt-2 flex items-start gap-2 px-3 py-2.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                      <ShieldCheck size={15} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                      <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+                        Admin accounts require approval from an existing administrator before you can sign in.
+                      </p>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
             <div>
               <label className="label">Password</label>
@@ -111,6 +188,10 @@ export default function Register() {
             <Link to="/login" className="text-primary-600 dark:text-primary-400 font-medium hover:underline">Sign in</Link>
           </p>
         </div>
+
+        <p className="text-center text-xs text-primary-400 mt-6">
+          © {new Date().getFullYear()} UTeM – Faculty of ICT
+        </p>
       </motion.div>
     </div>
   );
