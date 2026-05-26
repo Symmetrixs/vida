@@ -38,7 +38,7 @@ class FindingUpdate(BaseModel):
 @router.get("/")
 def list_findings(inspection_id: Optional[str] = None, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    query = supabase.table("findings").select("*, photos(url, thumbnail_url)")
+    query = supabase.table("findings").select("*")
     if inspection_id:
         query = query.eq("inspection_id", inspection_id)
     result = query.order("created_at", desc=True).execute()
@@ -48,7 +48,7 @@ def list_findings(inspection_id: Optional[str] = None, current_user: dict = Depe
 @router.get("/{finding_id}")
 def get_finding(finding_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    result = supabase.table("findings").select("*, photos(*)").eq("id", finding_id).single().execute()
+    result = supabase.table("findings").select("*").eq("id", finding_id).single().execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Finding not found")
     return result.data
