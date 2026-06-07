@@ -11,7 +11,7 @@ router = APIRouter()
 
 
 def get_supabase() -> Client:
-    return create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_KEY", ""))
+    return create_client(os.getenv("SUPABASE_URL", ""), os.getenv("SUPABASE_SERVICE_KEY", ""))
 
 
 class GroupPhotoItem(BaseModel):
