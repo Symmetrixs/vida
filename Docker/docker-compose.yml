@@ -11,6 +11,10 @@ services:
     restart: unless-stopped
     volumes:
       - ../Backend:/app
+      - ../Model:/app/Model
+    environment:
+      - MODEL_PATH=/app/Model
+      - CONFIDENCE_THRESHOLD=0.05
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s

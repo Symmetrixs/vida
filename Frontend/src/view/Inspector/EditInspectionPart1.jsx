@@ -23,9 +23,15 @@ export default function EditInspectionPart1() {
   const [tab,       setTab]       = useState("details");
   const [customFloor, setCustomFloor] = useState(false);
 
+  const [locked, setLocked] = useState(false);
+
   useEffect(() => {
     Promise.all([api.get(`/inspections/${id}`), api.get("/buildings/")]).then(([insp, bldg]) => {
       const d = insp.data;
+      if (d.created_at) {
+        const age = (Date.now() - new Date(d.created_at).getTime()) / (1000 * 60 * 60 * 24);
+        if (age >= 3) setLocked(true);
+      }
       setForm({
         title:             d.title             || "",
         building_id:       d.building_id       || "",
@@ -116,7 +122,21 @@ export default function EditInspectionPart1() {
         </button>
       </div>
 
-      {tab === "details" && (
+      {tab === "details" && locked && (
+        <motion.div
+          className="card p-6 flex flex-col items-center justify-center gap-3 py-12 text-center"
+          initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+        >
+          <span className="text-5xl">🔒</span>
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Inspection Locked</h3>
+          <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm">
+            This inspection was created more than 3 days ago and can no longer be edited. Contact an administrator if changes are required.
+          </p>
+          <button onClick={() => navigate(-1)} className="btn-secondary mt-2">Go Back</button>
+        </motion.div>
+      )}
+
+      {tab === "details" && !locked && (
         <motion.form
           onSubmit={handleSave}
           className="card p-6 space-y-5"
@@ -214,8 +234,23 @@ export default function EditInspectionPart1() {
       )}
 
       {tab === "photos" && (
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
           <InspectionPhoto inspectionId={id} embedded />
+          <div className="flex justify-end pt-2">
+            <motion.button
+              onClick={async () => {
+                try {
+                  await api.post(`/inspections/${id}/submit`);
+                  toast.success("Inspection submitted!");
+                  navigate("/inspector/inspections");
+                } catch { toast.error("Submit failed"); }
+              }}
+              className="btn-primary flex items-center gap-2"
+              whileTap={{ scale: 0.97 }}
+            >
+              <Save size={15}/> Save & Submit
+            </motion.button>
+          </div>
         </motion.div>
       )}
     </div>

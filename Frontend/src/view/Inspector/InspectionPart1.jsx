@@ -1,74 +1,82 @@
-import { useState, useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ChevronRight, Building2 } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
 
-const generateFloors = (count) => {
-  if (!count || count < 1) return [];
-  const list = ["Ground Floor"];
-  for (let i = 1; i < count; i++) list.push(`Floor ${i}`);
-  list.push("Rooftop");
-  return list;
+const SS_KEY = "vida_part1_draft";
+const ssSave = v => { try { sessionStorage.setItem(SS_KEY, JSON.stringify(v)); } catch {} };
+const ssLoad = def => { try { const s = sessionStorage.getItem(SS_KEY); return s ? JSON.parse(s) : def; } catch { return def; } };
+
+const BLANK = { title: "", building_id: "", inspection_date: new Date().toISOString().slice(0,10), weather_condition: "sunny", floor_level: "", area_inspected: "", description: "" };
+
+const floorOptions = (floors) => {
+  const opts = ["Ground Floor"];
+  for (let i = 1; i < (floors || 5); i++) opts.push(`Level ${i}`);
+  opts.push("Rooftop");
+  return opts;
 };
 
 export default function InspectionPart1() {
-  const navigate = useNavigate();
+  const navigate  = useNavigate();
+  const { state } = useLocation();
+
+  const existingId = state?.inspectionId;
+
   const [buildings, setBuildings] = useState([]);
-  const [form, setForm] = useState({
-    title: "",
-    building_id: "",
-    inspection_date: new Date().toISOString().slice(0,10),
-    weather_condition: "sunny",
-    floor_level: "",
-    area_inspected: "",
-    description: "",
-  });
-  const [customFloor, setCustomFloor] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [form,      setForm]      = useState(() => existingId ? ssLoad(BLANK) : BLANK);
+  const [loading,   setLoading]   = useState(false);
 
-  useEffect(() => { api.get("/buildings/").then(r => setBuildings(r.data)).catch(() => {}); }, []);
+  useEffect(() => {
+    if (!existingId) sessionStorage.removeItem(SS_KEY);
+  }, [existingId]);
 
-  const selectedBuilding = useMemo(
-    () => buildings.find(b => b.id === form.building_id),
-    [buildings, form.building_id]
-  );
+  const selBuilding = buildings.find(b => b.id === form.building_id);
 
-  const floorOptions = useMemo(
-    () => generateFloors(selectedBuilding?.floors),
-    [selectedBuilding]
-  );
+  useEffect(() => {
+    api.get("/buildings/").then(r => setBuildings(r.data)).catch(() => {});
+  }, []);
 
-  const handleBuildingChange = (e) => {
-    setForm(f => ({ ...f, building_id: e.target.value, floor_level: "" }));
-    setCustomFloor(false);
-  };
+  useEffect(() => {
+    if (!existingId) return;
+    api.get(`/inspections/${existingId}`).then(r => {
+      const d = r.data;
+      const loaded = {
+        title:             d.title             || "",
+        building_id:       d.building_id       || "",
+        inspection_date:   d.inspection_date   || new Date().toISOString().slice(0,10),
+        weather_condition: d.weather_condition || "sunny",
+        floor_level:       d.floor_level       || "",
+        area_inspected:    d.area_inspected     || "",
+        description:       d.description       || "",
+      };
+      setForm(loaded);
+      ssSave(loaded);
+    }).catch(() => {});
+  }, [existingId]);
 
-  const handleFloorChange = (e) => {
-    const v = e.target.value;
-    if (v === "__custom__") {
-      setCustomFloor(true);
-      setForm(f => ({ ...f, floor_level: "" }));
-    } else {
-      setCustomFloor(false);
-      setForm(f => ({ ...f, floor_level: v }));
-    }
-  };
+  const set = (k, v) => setForm(f => { const n = {...f, [k]: v}; ssSave(n); return n; });
 
   const handleNext = async (e) => {
     e.preventDefault();
-    if (!form.building_id) { toast.error("Please select a building"); return; }
+    if (!form.title.trim())    { toast.error("Please enter an inspection title"); return; }
+    if (!form.building_id)     { toast.error("Please select a building"); return; }
+    if (!form.floor_level)     { toast.error("Please select a floor level"); return; }
     setLoading(true);
     try {
-      const r = await api.post("/inspections/", form);
-      toast.success("Inspection created");
-      navigate("/inspector/inspections/new/part2", { state: { inspectionId: r.data.id } });
+      let inspId = existingId;
+      if (existingId) {
+        await api.put(`/inspections/${existingId}`, form);
+      } else {
+        const r = await api.post("/inspections/", form);
+        inspId   = r.data.id;
+        toast.success("Inspection created");
+      }
+      navigate("/inspector/inspections/new/part2", { state: { inspectionId: inspId } });
     } catch (err) { toast.error(err.response?.data?.detail || "Failed"); }
     finally { setLoading(false); }
   };
-
-  const set = (k, v) => setForm(f => ({...f, [k]: v}));
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -76,7 +84,7 @@ export default function InspectionPart1() {
         <div className="flex items-center gap-2 text-xs text-slate-400 mb-2">
           <span className="badge-blue">Step 1 of 3</span> General Information
         </div>
-        <h1 className="page-title">New Inspection</h1>
+        <h1 className="page-title">{existingId ? "Edit Inspection Details" : "New Inspection"}</h1>
         <p className="page-subtitle">Fill in basic details about the inspection</p>
       </div>
 
@@ -94,13 +102,9 @@ export default function InspectionPart1() {
 
         <div>
           <label className="label">Building *</label>
-          <select value={form.building_id} onChange={handleBuildingChange} className="input" required>
+          <select value={form.building_id} onChange={e => { set("building_id", e.target.value); set("floor_level", ""); }} className="input" required>
             <option value="">Select a building…</option>
-            {buildings.map(b => (
-              <option key={b.id} value={b.id}>
-                {b.name} ({b.code}) · {b.floors} floor{b.floors !== 1 ? "s" : ""}
-              </option>
-            ))}
+            {buildings.map(b => <option key={b.id} value={b.id}>{b.name} ({b.code})</option>)}
           </select>
         </div>
 
@@ -119,46 +123,15 @@ export default function InspectionPart1() {
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="label">Floor Level</label>
-            {!selectedBuilding ? (
-              <input
-                value={form.floor_level}
-                onChange={e => set("floor_level", e.target.value)}
-                className="input"
-                placeholder="Select a building first…"
-                disabled
-              />
-            ) : customFloor ? (
-              <div className="flex gap-2">
-                <input
-                  value={form.floor_level}
-                  onChange={e => set("floor_level", e.target.value)}
-                  className="input flex-1"
-                  placeholder="Type custom floor…"
-                  autoFocus
-                />
-                <button
-                  type="button"
-                  onClick={() => { setCustomFloor(false); setForm(f => ({ ...f, floor_level: "" })); }}
-                  className="btn-secondary px-2"
-                  title="Use dropdown"
-                >↩</button>
-              </div>
-            ) : (
-              <select
-                value={form.floor_level}
-                onChange={handleFloorChange}
-                className="input"
-              >
-                <option value="">Select a floor…</option>
-                {floorOptions.map(f => <option key={f} value={f}>{f}</option>)}
-                <option value="__custom__">Other (type custom)…</option>
-              </select>
-            )}
+            <label className="label">Floor Level *</label>
+            <select value={form.floor_level} onChange={e => set("floor_level", e.target.value)} className="input" required disabled={!form.building_id}>
+              <option value="">{form.building_id ? "Select floor…" : "Select building first"}</option>
+              {selBuilding && floorOptions(selBuilding.floors).map(f => <option key={f} value={f}>{f}</option>)}
+            </select>
           </div>
           <div>
             <label className="label">Area Inspected</label>
-            <input value={form.area_inspected} onChange={e => set("area_inspected", e.target.value)} className="input" placeholder="e.g. Exterior facade"/>
+            <input value={form.area_inspected} onChange={e => set("area_inspected", e.target.value)} className="input" placeholder="e.g. Exterior facade, Corridor"/>
           </div>
         </div>
 
@@ -169,7 +142,7 @@ export default function InspectionPart1() {
 
         <div className="flex justify-end pt-2">
           <motion.button type="submit" disabled={loading} className="btn-primary" whileTap={{ scale: 0.97 }}>
-            {loading ? "Creating…" : <span className="flex items-center gap-2">Next: Photos <ChevronRight size={16}/></span>}
+            {loading ? (existingId ? "Updating…" : "Creating…") : <span className="flex items-center gap-2">Next: Photos <ChevronRight size={16}/></span>}
           </motion.button>
         </div>
       </motion.form>

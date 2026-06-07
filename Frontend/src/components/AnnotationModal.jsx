@@ -4,7 +4,7 @@ import { X, Download, Pen, Square, Type, Eraser, Undo2, Trash2, ZoomIn, ZoomOut,
 
 const COLORS = ["#ef4444", "#3b82f6", "#f59e0b", "#10b981", "#8b5cf6", "#ffffff", "#000000"];
 const STROKE_WIDTHS = [2, 4, 8];
-const DEFECT_COLORS = { crack: "#ef4444", faded_paint: "#f59e0b", spalling: "#8b5cf6", water_stain: "#3b82f6" };
+const DEFECT_COLORS = { crack: "#ef4444", faded_paint: "#f59e0b", spalling: "#8b5cf6", water_stain: "#3b82f6", rust: "#b45309", mold: "#16a34a", efflorescence: "#64748b" };
 const TOOLBAR_W = 64;
 const HEADER_H  = 62;
 const PAD       = 16;
@@ -44,7 +44,7 @@ const computeLayout = (loaded, windowW, windowH) => {
   return { arranged, canvasW, canvasH };
 };
 
-export default function AnnotationModal({ open, onClose, photos: photosProp, onSave }) {
+export default function AnnotationModal({ open, onClose, photos: photosProp, onSave, initialActions = [], initialPhotoLayout = null }) {
   const photoCanvasRef = useRef(null);
   const annoCanvasRef  = useRef(null);
   const livePosRef     = useRef(new Map());
@@ -67,7 +67,7 @@ export default function AnnotationModal({ open, onClose, photos: photosProp, onS
 
   useEffect(() => {
     if (!open || !photosProp?.length) return;
-    setActions([]);
+    setActions(initialActions && initialActions.length ? initialActions : []);
     setCurrentAction(null);
     setViewScale(1);
     setSelectedId(null);
@@ -82,9 +82,18 @@ export default function AnnotationModal({ open, onClose, photos: photosProp, onS
       naturalHeight: img.naturalHeight,
       detections:    p.detections || [],
     })))).then(loaded => {
-      const { arranged, canvasW, canvasH } = computeLayout(loaded, window.innerWidth, window.innerHeight);
-      setCanvasSize({ w: canvasW, h: canvasH });
-      setPhotoData(arranged);
+      if (initialPhotoLayout?.photos?.length) {
+        const restored = loaded.map(p => {
+          const s = initialPhotoLayout.photos.find(l => l.id === p.id);
+          return s ? { ...p, x: s.x, y: s.y, w: s.w, h: s.h } : p;
+        });
+        setCanvasSize({ w: initialPhotoLayout.canvasW, h: initialPhotoLayout.canvasH });
+        setPhotoData(restored);
+      } else {
+        const { arranged, canvasW, canvasH } = computeLayout(loaded, window.innerWidth, window.innerHeight);
+        setCanvasSize({ w: canvasW, h: canvasH });
+        setPhotoData(arranged);
+      }
     });
   }, [open, photosProp]);
 
@@ -375,7 +384,12 @@ export default function AnnotationModal({ open, onClose, photos: photosProp, onS
   };
 
   const handleSave = () => {
-    onSave?.(photoData.map(p => p.id), compositeCanvas().toDataURL("image/png"), actions);
+    const layout = {
+      photos:  photoData.map(p => ({ id: p.id, x: p.x, y: p.y, w: p.w, h: p.h })),
+      canvasW: canvasSize.w,
+      canvasH: canvasSize.h,
+    };
+    onSave?.(photoData.map(p => p.id), compositeCanvas().toDataURL("image/png"), actions, layout);
     onClose();
   };
 

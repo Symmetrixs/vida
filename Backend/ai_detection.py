@@ -1,6 +1,9 @@
 import os
-import base64
-import httpx
+import io
+import torch
+import numpy as np
+from pathlib import Path
+from PIL import Image
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from typing import List, Optional
@@ -8,10 +11,130 @@ from auth import get_current_user
 
 router = APIRouter()
 
-HF_API_URL = os.getenv("HF_API_URL", "")
-HF_TOKEN = os.getenv("HF_TOKEN", "")
-DEFECT_CLASSES = ["crack", "faded_paint", "spalling", "water_stain"]
-CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.3"))
+MODEL_PATH           = os.getenv("MODEL_PATH", "/app/Model")
+CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", "0.25"))
+
+DEFECT_CLASSES = [
+    "crack", "faded_paint", "spalling", "water_stain",
+    "rust", "mold", "efflorescence",
+]
+
+ID2LABEL = {i: c for i, c in enumerate(DEFECT_CLASSES)}
+LABEL2ID = {c: i for i, c in enumerate(DEFECT_CLASSES)}
+
+DEFECT_COLORS = {
+    "crack":         "#ef4444",
+    "faded_paint":   "#f59e0b",
+    "spalling":      "#8b5cf6",
+    "water_stain":   "#3b82f6",
+    "rust":          "#b45309",
+    "mold":          "#16a34a",
+    "efflorescence": "#64748b",
+}
+
+DEFECT_DESCRIPTIONS = {
+    "crack":         "Structural or hairline crack on building surface",
+    "faded_paint":   "Deteriorated, peeling, or faded paint on walls",
+    "spalling":      "Concrete or plaster breaking off, flaking from surface",
+    "water_stain":   "Water staining, dampness or moisture damage on surfaces",
+    "rust":          "Rust or corrosion on metallic elements or rebar bleed-through",
+    "mold":          "Mold, mildew, algae or biological growth on surfaces",
+    "efflorescence": "White chalky salt deposits on concrete, brick or masonry",
+}
+
+SEVERITY_RULES = {
+    "crack":         lambda s: "high"   if s >= 0.85 else "medium" if s >= 0.55 else "low",
+    "spalling":      lambda s: "high"   if s >= 0.80 else "medium" if s >= 0.50 else "low",
+    "rust":          lambda s: "high"   if s >= 0.80 else "medium" if s >= 0.50 else "low",
+    "faded_paint":   lambda s: "medium" if s >= 0.70 else "low",
+    "water_stain":   lambda s: "medium" if s >= 0.65 else "low",
+    "mold":          lambda s: "medium" if s >= 0.65 else "low",
+    "efflorescence": lambda s: "low",
+}
+
+_model     = None
+_processor = None
+_device    = None
+
+
+def _load_model():
+    global _model, _processor, _device
+    if _model is not None:
+        return _model, _processor, _device
+
+    model_path = Path(MODEL_PATH)
+    if not model_path.exists():
+        raise RuntimeError(f"Model not found at {MODEL_PATH}")
+
+    from transformers import RTDetrV2ForObjectDetection, RTDetrImageProcessor
+
+    _device    = "cuda" if torch.cuda.is_available() else "cpu"
+    _processor = RTDetrImageProcessor.from_pretrained(str(model_path))
+    _model     = RTDetrV2ForObjectDetection.from_pretrained(
+        str(model_path),
+        id2label=ID2LABEL,
+        label2id=LABEL2ID,
+        ignore_mismatched_sizes=True,
+    ).to(_device)
+    _model.eval()
+    print(f"[AI] Model loaded from {MODEL_PATH} on {_device}")
+    return _model, _processor, _device
+
+
+def _box_cxcywh_to_xyxy(boxes):
+    cx, cy, w, h = boxes.unbind(-1)
+    return torch.stack([cx - 0.5*w, cy - 0.5*h, cx + 0.5*w, cy + 0.5*h], dim=-1)
+
+
+def _infer_severity(label: str, score: float) -> str:
+    rule = SEVERITY_RULES.get(label)
+    return rule(score) if rule else ("medium" if score >= 0.65 else "low")
+
+
+def _run_inference(image: Image.Image, conf: float):
+    model, processor, device = _load_model()
+    w, h    = image.size
+    inputs  = processor(images=image, return_tensors="pt").to(device)
+
+    with torch.no_grad():
+        outputs = model(**inputs)
+
+    logits     = outputs.logits[0]
+    pred_boxes = outputs.pred_boxes[0]
+    scores_all = torch.sigmoid(logits)
+    scores, labels = scores_all.max(dim=-1)
+
+    keep   = scores > conf
+    scores = scores[keep].cpu().numpy()
+    labels = labels[keep].cpu().numpy()
+    boxes  = pred_boxes[keep].cpu()
+    boxes  = _box_cxcywh_to_xyxy(boxes).numpy()
+
+    boxes[:, 0] = np.clip(boxes[:, 0] * w, 0, w)
+    boxes[:, 1] = np.clip(boxes[:, 1] * h, 0, h)
+    boxes[:, 2] = np.clip(boxes[:, 2] * w, 0, w)
+    boxes[:, 3] = np.clip(boxes[:, 3] * h, 0, h)
+
+    results = []
+    for score, label, box in zip(scores, labels, boxes):
+        x1, y1, x2, y2 = box
+        bw = float(x2 - x1)
+        bh = float(y2 - y1)
+        if bw <= 0 or bh <= 0:
+            continue
+        label_name = ID2LABEL.get(int(label), "unknown")
+        results.append({
+            "label":    label_name,
+            "score":    round(float(score), 4),
+            "severity": _infer_severity(label_name, float(score)),
+            "box": {
+                "xmin": round(float(x1), 1),
+                "ymin": round(float(y1), 1),
+                "xmax": round(float(x2), 1),
+                "ymax": round(float(y2), 1),
+            },
+        })
+    return results
 
 
 class BoundingBox(BaseModel):
@@ -22,16 +145,16 @@ class BoundingBox(BaseModel):
 
 
 class DetectionResult(BaseModel):
-    label: str
-    score: float
-    box: BoundingBox
+    label:    str
+    score:    float
+    severity: str
+    box:      BoundingBox
 
 
 class DetectionResponse(BaseModel):
-    detections: List[DetectionResult]
-    image_width: Optional[int] = None
-    image_height: Optional[int] = None
-    model: str = "RT-DETR"
+    detections:  List[DetectionResult]
+    model:       str = "RT-DETRv2 (local)"
+    total_found: int = 0
 
 
 @router.post("/detect", response_model=DetectionResponse)
@@ -39,76 +162,51 @@ async def detect_defects(
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
 ):
-    if not file.content_type.startswith("image/"):
+    if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image")
 
     contents = await file.read()
+    if len(contents) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image too large. Max 20MB.")
 
-    if not HF_API_URL or not HF_TOKEN:
-        return DetectionResponse(
-            detections=[
-                DetectionResult(
-                    label="crack",
-                    score=0.92,
-                    box=BoundingBox(xmin=120, ymin=80, xmax=340, ymax=210),
-                ),
-                DetectionResult(
-                    label="water_stain",
-                    score=0.76,
-                    box=BoundingBox(xmin=400, ymin=150, xmax=580, ymax=300),
-                ),
-            ],
-            model="RT-DETR (mock)",
-        )
+    try:
+        image = Image.open(io.BytesIO(contents)).convert("RGB")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid image file")
 
-    headers = {
-        "Authorization": f"Bearer {HF_TOKEN}",
-        "Content-Type": file.content_type,
-    }
+    try:
+        raw = _run_inference(image, CONFIDENCE_THRESHOLD)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        response = await client.post(HF_API_URL, headers=headers, content=contents)
-
-    if response.status_code == 503:
-        raise HTTPException(status_code=503, detail="AI model is loading, please retry in 30 seconds")
-    if response.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"AI model returned error: {response.status_code}")
-
-    raw_results = response.json()
-
-    detections = []
-    for item in raw_results:
-        score = item.get("score", 0)
-        label = item.get("label", "").lower().replace(" ", "_")
-        if score < CONFIDENCE_THRESHOLD:
-            continue
-        if label not in DEFECT_CLASSES:
-            continue
-        box_data = item.get("box", {})
-        detections.append(
-            DetectionResult(
-                label=label,
-                score=round(score, 4),
-                box=BoundingBox(
-                    xmin=box_data.get("xmin", 0),
-                    ymin=box_data.get("ymin", 0),
-                    xmax=box_data.get("xmax", 0),
-                    ymax=box_data.get("ymax", 0),
-                ),
-            )
-        )
-
-    return DetectionResponse(detections=detections, model="RT-DETR")
+    detections = [DetectionResult(**d) for d in raw]
+    return DetectionResponse(
+        detections=detections,
+        model="RT-DETRv2 (local)",
+        total_found=len(detections),
+    )
 
 
 @router.get("/classes")
 def get_defect_classes(current_user: dict = Depends(get_current_user)):
     return {
-        "classes": DEFECT_CLASSES,
-        "descriptions": {
-            "crack": "Structural or surface crack on building material",
-            "faded_paint": "Deteriorated or faded paint coating on surfaces",
-            "spalling": "Concrete spalling – flaking or chipping of surface material",
-            "water_stain": "Water staining or moisture damage on surfaces",
-        },
+        "classes":              DEFECT_CLASSES,
+        "confidence_threshold": CONFIDENCE_THRESHOLD,
+        "colors":               DEFECT_COLORS,
+        "descriptions":         DEFECT_DESCRIPTIONS,
+    }
+
+
+@router.get("/health")
+def model_health():
+    model_path = Path(MODEL_PATH)
+    if not model_path.exists():
+        return {"status": "error", "message": f"Model not found at {MODEL_PATH}"}
+    files = [f.name for f in model_path.iterdir() if f.is_file()]
+    loaded = _model is not None
+    return {
+        "status":  "ready" if loaded else "not_loaded",
+        "path":    MODEL_PATH,
+        "device":  _device or "not loaded",
+        "files":   files,
     }
