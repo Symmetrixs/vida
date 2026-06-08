@@ -8,7 +8,7 @@ from auth import get_current_user
 
 router = APIRouter()
 
-DEFECT_TYPES = ["crack", "faded_paint", "spalling", "water_stain"]
+DEFECT_TYPES = ["crack", "faded_paint", "spalling", "water_stain", "rust", "mold", "efflorescence"]
 SEVERITIES = ["low", "medium", "high", "critical"]
 
 

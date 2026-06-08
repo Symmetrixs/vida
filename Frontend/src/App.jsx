@@ -28,6 +28,7 @@ import EditInspectionPart1 from "./view/Inspector/EditInspectionPart1.jsx";
 import AddEquipment      from "./view/Inspector/AddEquipment.jsx";
 import EditEquipment     from "./view/Inspector/EditEquipment.jsx";
 import ReportManagement  from "./view/Inspector/ReportManagement.jsx";
+import ReportView        from "./view/Inspector/ReportView.jsx";
 import StatisticAnalysis from "./view/Inspector/StatisticAnalysis.jsx";
 import TeamSharedReport  from "./view/Inspector/TeamSharedReport.jsx";
 import Profile           from "./view/Inspector/Profile.jsx";
@@ -94,6 +95,7 @@ export default function App() {
           <Route path="equipment/add"           element={<AddEquipment />} />
           <Route path="equipment/:id/edit"      element={<EditEquipment />} />
           <Route path="reports"                 element={<ReportManagement />} />
+          <Route path="reports/:id"             element={<ReportView />} />
           <Route path="statistics"              element={<StatisticAnalysis />} />
           <Route path="team-reports"            element={<TeamSharedReport />} />
           <Route path="profile"                 element={<Profile />} />

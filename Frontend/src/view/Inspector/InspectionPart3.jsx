@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ChevronLeft, CheckCircle, AlertTriangle, X, Expand } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
-import { getAnnot, getGroups } from "../../utils/annotCache.js";
+import { getAnnot } from "../../utils/annotCache.js";
 
 const DEFECT_COLORS = {
   crack:"#ef4444", faded_paint:"#f59e0b", spalling:"#8b5cf6",
@@ -26,7 +26,8 @@ export default function InspectionPart3() {
   const [viewAnnot,  setViewAnnot]  = useState(null);
 
   const savedAnnot = inspectionId ? getAnnot(inspectionId) : {};
-  const _navGroups = state?.groups || getGroups(inspectionId);
+  const _ssGroups  = (() => { try { const s = sessionStorage.getItem(`vida_groups_${inspectionId}`); return s ? JSON.parse(s) : []; } catch { return []; } })();
+  const _navGroups = state?.groups?.length ? state.groups : _ssGroups;
   const groups     = _navGroups.length > 0
     ? _navGroups
     : photos.length > 0

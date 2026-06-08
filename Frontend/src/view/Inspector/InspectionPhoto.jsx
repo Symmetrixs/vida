@@ -372,8 +372,8 @@ export default function InspectionPhoto({ inspectionId: propId, embedded = false
                               <div className="relative aspect-video bg-slate-100 dark:bg-slate-800 select-none">
                                 <img src={photo.url} alt={photo.label} className="w-full h-full object-cover pointer-events-none"/>
                                 {scanned && dets.length > 0 && (
-                                  <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
-                                    {dets.map((d, i) => { const { xmin,ymin,xmax,ymax } = d.box; const color = DEFECT_COLORS[d.label]||"#6366f1"; return <rect key={i} x={xmin/10} y={ymin/10} width={(xmax-xmin)/10} height={(ymax-ymin)/10} stroke={color} strokeWidth={0.8} fill={`${color}22`} rx={0.5}/>; })}
+                                  <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 1000 750" preserveAspectRatio="none">
+                                    {dets.map((d, i) => { const { xmin,ymin,xmax,ymax } = d.box; const color = DEFECT_COLORS[d.label]||"#6366f1"; return <rect key={i} x={xmin} y={ymin} width={xmax-xmin} height={ymax-ymin} stroke={color} strokeWidth={8} fill={`${color}22`} rx={4}/>; })}
                                   </svg>
                                 )}
                                 <div className="absolute top-1.5 left-1.5"><span className="text-[10px] font-bold bg-black/60 text-white px-1.5 py-0.5 rounded-full">{photo.label}</span></div>
@@ -392,7 +392,7 @@ export default function InspectionPhoto({ inspectionId: propId, embedded = false
                                         <span className="font-semibold capitalize truncate">{d.label.replace("_"," ")}</span>
                                         <span className="opacity-75 shrink-0">{Math.round(d.score*100)}%</span>
                                       </div>
-                                      <button onClick={() => removeDet(photo.id, i)} className="w-6 h-6 rounded-full bg-black/20 hover:bg-black/40 flex items-center justify-center transition-colors shrink-0 ml-1"><X size={11}/></button>
+                                      <button onClick={() => removeDet(photo.id, i)} className="w-8 h-8 rounded-full bg-black/20 hover:bg-black/40 flex items-center justify-center transition-colors shrink-0 ml-1"><X size={12}/></button>
                                     </div>
                                   ))}
                                 </div>

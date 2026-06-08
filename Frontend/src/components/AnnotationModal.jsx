@@ -85,7 +85,7 @@ export default function AnnotationModal({ open, onClose, photos: photosProp, onS
       if (initialPhotoLayout?.photos?.length) {
         const restored = loaded.map(p => {
           const s = initialPhotoLayout.photos.find(l => l.id === p.id);
-          return s ? { ...p, x: s.x, y: s.y, w: s.w, h: s.h } : p;
+          return s ? { ...p, x: s.x, y: s.y, scale: s.scale ?? p.scale } : p;
         });
         setCanvasSize({ w: initialPhotoLayout.canvasW, h: initialPhotoLayout.canvasH });
         setPhotoData(restored);
@@ -95,7 +95,7 @@ export default function AnnotationModal({ open, onClose, photos: photosProp, onS
         setPhotoData(arranged);
       }
     });
-  }, [open, photosProp]);
+  }, [open, photosProp, initialActions, initialPhotoLayout]);
 
   useEffect(() => {
     if (!open) return;
@@ -150,7 +150,7 @@ export default function AnnotationModal({ open, onClose, photos: photosProp, onS
     if (canvas.height !== canvasSize.h) canvas.height = canvasSize.h;
     const ctx = canvas.getContext("2d");
     ctx.clearRect(0, 0, canvasSize.w, canvasSize.h);
-    ctx.fillStyle = "#0f172a";
+    ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvasSize.w, canvasSize.h);
 
     photoData.forEach(p => {
@@ -385,7 +385,7 @@ export default function AnnotationModal({ open, onClose, photos: photosProp, onS
 
   const handleSave = () => {
     const layout = {
-      photos:  photoData.map(p => ({ id: p.id, x: p.x, y: p.y, w: p.w, h: p.h })),
+      photos:  photoData.map(p => ({ id: p.id, x: p.x, y: p.y, scale: p.scale || 1 })),
       canvasW: canvasSize.w,
       canvasH: canvasSize.h,
     };
@@ -492,7 +492,7 @@ export default function AnnotationModal({ open, onClose, photos: photosProp, onS
                 <button onClick={() => setViewScale(s => Math.max(s - 0.25, 0.25))} title="Zoom out" className="w-11 h-8 rounded-lg flex items-center justify-center text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800 shrink-0"><ZoomOut size={14}/></button>
               </div>
 
-              <div className="flex-1 overflow-auto bg-slate-100 dark:bg-slate-950 flex items-start justify-center p-0 select-none">
+              <div className="flex-1 overflow-auto bg-slate-100 flex items-start justify-center p-0 select-none">
                 <div style={{ transform: `scale(${viewScale})`, transformOrigin: "top left", transition: "transform 0.2s", position: "relative", flexShrink: 0 }}>
                   <canvas ref={photoCanvasRef} className="block"/>
                   <canvas

@@ -110,3 +110,15 @@ def save_groups(inspection_id: str, body: SaveGroupsBody, current_user: dict = D
 def delete_all_groups(inspection_id: str, current_user: dict = Depends(get_current_user)):
     get_supabase().table("inspection_groups").delete().eq("inspection_id", inspection_id).execute()
     return {"deleted": True}
+
+
+class GroupNameUpdate(BaseModel):
+    name: str
+
+
+@router.patch("/group/{group_id}")
+def update_group_name(group_id: str, body: GroupNameUpdate, current_user: dict = Depends(get_current_user)):
+    result = get_supabase().table("inspection_groups").update({"name": body.name}).eq("id", group_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Group not found")
+    return result.data[0]

@@ -3,10 +3,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, ZoomIn, ZoomOut, RotateCcw, Download } from "lucide-react";
 
 const DEFECT_COLORS = {
-  crack:       "#ef4444",
-  faded_paint: "#f59e0b",
-  spalling:    "#8b5cf6",
-  water_stain: "#3b82f6",
+  crack:         "#ef4444",
+  faded_paint:   "#f59e0b",
+  spalling:      "#8b5cf6",
+  water_stain:   "#3b82f6",
+  rust:          "#b45309",
+  mold:          "#16a34a",
+  efflorescence: "#64748b",
 };
 
 export default function CanvasModal({ open, onClose, imageUrl, detections = [], onSave }) {
