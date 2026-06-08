@@ -10,7 +10,7 @@ import logo from "../../assets/company-logo.png";
 export default function Register() {
   const { updateUser } = useAuth();
   const navigate = useNavigate();
-  const [form, setForm] = useState({ name: "", email: "", password: "", confirm: "", role: "inspector" });
+  const [form, setForm] = useState({ name: "", email: "", employee_id: "", password: "", confirm: "", role: "inspector" });
   const [showPw, setShowPw] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -29,10 +29,11 @@ export default function Register() {
     setLoading(true);
     try {
       const res = await api.post("/auth/register", {
-        name: form.name,
-        email: form.email,
-        password: form.password,
-        role: form.role,
+        name:        form.name,
+        email:       form.email,
+        password:    form.password,
+        role:        form.role,
+        employee_id: form.employee_id || undefined,
       });
 
       if (res.data.status === "pending") {
@@ -80,7 +81,7 @@ export default function Register() {
             <div className="flex flex-col gap-3">
               <Link to="/login" className="btn-primary w-full justify-center">Go to Sign In</Link>
               <button
-                onClick={() => { setPendingAdmin(false); setForm({ name: "", email: "", password: "", confirm: "", role: "inspector" }); }}
+                onClick={() => { setPendingAdmin(false); setForm({ name: "", email: "", employee_id: "", password: "", confirm: "", role: "inspector" }); }}
                 className="btn-secondary w-full justify-center"
               >
                 Register a different account
@@ -123,6 +124,10 @@ export default function Register() {
             <div>
               <label className="label">Full name</label>
               <input name="name" value={form.name} onChange={handleChange} className="input" placeholder="Ahmad bin Ali" required />
+            </div>
+            <div>
+              <label className="label">Matric No. / Employee ID <span className="text-red-500">*</span></label>
+              <input name="employee_id" value={form.employee_id} onChange={handleChange} className="input" placeholder="e.g. B032410881 or EMP-001" required />
             </div>
             <div>
               <label className="label">Email address</label>

@@ -4,7 +4,11 @@ import { Users as UsersIcon, Search, Pencil, Trash2, X, Check, ShieldCheck, Shie
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
 
-const ROLES = ["inspector", "facility_manager", "admin"];
+const ROLES = [
+  { value: "inspector",        label: "Inspector"         },
+  { value: "facility_manager", label: "Facility Manager"  },
+  { value: "admin",            label: "Administrator"     },
+];
 
 function UserModal({ user, onClose, onSaved }) {
   const [form, setForm] = useState({ name: user?.name || "", role: user?.role || "inspector", is_active: user?.is_active ?? true });
@@ -33,7 +37,7 @@ function UserModal({ user, onClose, onSaved }) {
           <div>
             <label className="label">Role</label>
             <select value={form.role} onChange={(e) => setForm(f => ({...f, role: e.target.value}))} className="input">
-              {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+              {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
             </select>
           </div>
           <div className="flex items-center gap-3">

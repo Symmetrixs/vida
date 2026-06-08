@@ -148,8 +148,11 @@ export default function TopNavBar({ onMenuToggle }) {
             onClick={() => setDropdownOpen((o) => !o)}
             className="flex items-center gap-2 px-3 py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
           >
-            <div className="w-8 h-8 rounded-full bg-primary-600 flex items-center justify-center text-white text-sm font-bold select-none">
-              {user?.name?.[0]?.toUpperCase() || "U"}
+            <div className="w-8 h-8 rounded-full bg-primary-600 flex items-center justify-center text-white text-sm font-bold select-none overflow-hidden shrink-0">
+              {user?.avatar_url
+                ? <img src={user.avatar_url} alt={user.name} className="w-full h-full object-cover"/>
+                : (user?.name?.[0]?.toUpperCase() || "U")
+              }
             </div>
             <div className="hidden sm:flex flex-col items-start">
               <span className="text-sm font-medium text-slate-800 dark:text-slate-200 leading-tight">{user?.name || "User"}</span>
@@ -168,7 +171,7 @@ export default function TopNavBar({ onMenuToggle }) {
                 className="absolute right-0 mt-2 w-48 card shadow-xl py-1 overflow-hidden"
               >
                 <Link
-                  to={user?.role === "admin" ? "/admin/settings" : "/inspector/profile"}
+                  to={user?.role === "admin" ? "/admin/profile" : "/inspector/profile"}
                   onClick={() => setDropdownOpen(false)}
                   className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
                 >

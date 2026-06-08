@@ -8,7 +8,7 @@ const items = [
   { to: "/inspector/vessels",               icon: Building2,     label: "Buildings",       desc: "Browse campus buildings",           color: "bg-violet-600" },
   { to: "/inspector/reports",               icon: FileText,      label: "Reports",         desc: "Generate and manage reports",       color: "bg-amber-500" },
   { to: "/inspector/statistics",            icon: BarChart2,     label: "Statistics",      desc: "View your performance stats",       color: "bg-green-600" },
-  { to: "/inspector/team-reports",          icon: Share2,        label: "Team Reports",    desc: "Shared reports across teams",       color: "bg-rose-500" },
+  { to: "/inspector/team-reports",          icon: Share2,        label: "Shared Reports",    desc: "Reports shared with you",              color: "bg-rose-500" },
   { to: "/inspector/profile",               icon: User,          label: "Profile",         desc: "Update your personal info",         color: "bg-slate-600" },
   { to: "/inspector/settings",              icon: Settings,      label: "Settings",        desc: "App preferences & password",        color: "bg-indigo-600" },
 ];

@@ -15,6 +15,7 @@ import Reports      from "./view/Admin/Reports.jsx";
 import Analytics    from "./view/Admin/Analytics.jsx";
 import AdminNotifications from "./view/Admin/Notifications.jsx";
 import Settings     from "./view/Admin/Settings.jsx";
+import AdminProfile from "./view/Admin/Profile.jsx";
 
 import InspectorLayout   from "./view/Inspector/InspectorLayout.jsx";
 import Home              from "./view/Inspector/Home.jsx";
@@ -73,6 +74,7 @@ export default function App() {
           <Route path="analytics"     element={<Analytics />} />
           <Route path="notifications" element={<AdminNotifications />} />
           <Route path="settings"      element={<Settings />} />
+          <Route path="profile"       element={<AdminProfile />} />
         </Route>
 
         <Route

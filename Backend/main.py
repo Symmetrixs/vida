@@ -14,7 +14,6 @@ from report import router as report_router
 from recommendation import router as recommendation_router
 from notification import router as notification_router
 from inspector import router as inspector_router
-from team import router as team_router
 from ai_detection import router as ai_router
 from group import router as group_router
 
@@ -60,7 +59,6 @@ app.include_router(report_router,         prefix="/reports",         tags=["Repo
 app.include_router(recommendation_router, prefix="/recommendations",  tags=["Recommendations"])
 app.include_router(notification_router,   prefix="/notifications",   tags=["Notifications"])
 app.include_router(inspector_router,      prefix="/inspector",       tags=["Inspector"])
-app.include_router(team_router,           prefix="/teams",           tags=["Teams"])
 app.include_router(group_router,          prefix="/groups",          tags=["Groups"])
 
 

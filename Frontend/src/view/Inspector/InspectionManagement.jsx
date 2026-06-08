@@ -88,7 +88,7 @@ export default function InspectionManagement() {
                     {insp.is_mine && <span className="badge-blue text-[10px]">Mine</span>}
                   </div>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    {insp.buildings?.name || "No building"} · {new Date(insp.inspection_date || insp.created_at).toLocaleDateString("en-MY")} · <span className="capitalize">{insp.inspector?.name || "Me"}</span>
+                    {insp.buildings?.name || "No building"} · {new Date(insp.inspection_date || insp.created_at).toLocaleDateString("en-MY")} · <span className="capitalize">{insp.inspector?.name || insp.users?.name || "Unknown"}</span>
                   </p>
                   {locked && (
                     <p className="text-[10px] text-amber-500 flex items-center gap-1 mt-0.5">

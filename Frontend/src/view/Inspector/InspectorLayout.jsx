@@ -14,7 +14,7 @@ const links = [
   { to: "/inspector/vessels",    label: "Buildings",   icon: Building2 },
   { to: "/inspector/reports",    label: "Reports",     icon: FileText },
   { to: "/inspector/statistics", label: "Statistics",  icon: BarChart2 },
-  { to: "/inspector/team-reports",label: "Team",       icon: Share2 },
+  { to: "/inspector/team-reports",label: "Shared",      icon: Share2 },
   { to: "/inspector/profile",    label: "Profile",     icon: User },
   { to: "/inspector/settings",   label: "Settings",    icon: Settings },
 ];

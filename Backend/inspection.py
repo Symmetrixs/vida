@@ -37,13 +37,23 @@ class InspectionUpdate(BaseModel):
 @router.get("/")
 def list_inspections(current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    result = (
-        supabase.table("inspections")
-        .select("*, buildings(name, code), users!inspector_id(name)")
-        .order("created_at", desc=True)
-        .execute()
-    )
-    return result.data or []
+    role     = current_user.get("role")
+    me_id    = current_user["id"]
+
+    query = supabase.table("inspections").select("*, buildings(name, code), users!inspector_id(name, avatar_url)").order("created_at", desc=True)
+
+    if role == "inspector":
+        query = query.eq("inspector_id", me_id)
+
+    result = query.execute()
+    rows   = result.data or []
+
+    for row in rows:
+        row["is_mine"]     = row.get("inspector_id") == me_id
+        inspector_data     = row.get("users") or {}
+        row["inspector"]   = {"name": inspector_data.get("name", "Unknown"), "avatar_url": inspector_data.get("avatar_url")}
+
+    return rows
 
 
 @router.get("/{inspection_id}")

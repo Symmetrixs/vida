@@ -38,6 +38,7 @@ class UserRegister(BaseModel):
     email: EmailStr
     password: str
     role: str = "inspector"
+    employee_id: Optional[str] = None
 
 
 class UserLogin(BaseModel):
@@ -169,22 +170,34 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 def register(user: UserRegister):
     supabase = get_supabase()
-    existing = supabase.table("users").select("id").eq("email", user.email).execute()
+    existing = supabase.table("users").select("id, is_active, role").eq("email", user.email).execute()
     if existing.data:
-        raise HTTPException(status_code=400, detail="Email already registered")
+        ex = existing.data[0]
+        if ex.get("is_active") is False:
+            raise HTTPException(status_code=400, detail="An account with this email was previously deactivated. Contact your administrator to reactivate it.")
+        raise HTTPException(status_code=400, detail="Email already registered. Please sign in instead.")
 
-    hashed = hash_password(user.password)
+    if user.employee_id:
+        emp_check = supabase.table("users").select("id").eq("employee_id", user.employee_id).execute()
+        if emp_check.data:
+            raise HTTPException(status_code=400, detail="This Matric No. / Employee ID is already registered to another account.")
+
+    hashed        = hash_password(user.password)
     is_admin_role = user.role == "admin"
+    now           = datetime.now(timezone.utc).isoformat()
 
     new_user = {
-        "name": user.name,
-        "email": user.email,
+        "name":          user.name,
+        "email":         user.email,
         "password_hash": hashed,
-        "role": user.role,
-        "is_active": True,
-        "is_approved": None if is_admin_role else True,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "role":          user.role,
+        "is_active":     True,
+        "is_approved":   None if is_admin_role else True,
+        "created_at":    now,
     }
+    if user.employee_id:
+        new_user["employee_id"] = user.employee_id
+
     result = supabase.table("users").insert(new_user).execute()
     if not result.data:
         raise HTTPException(status_code=500, detail="Registration failed")
@@ -193,20 +206,25 @@ def register(user: UserRegister):
 
     if is_admin_role:
         return {
-            "status": "pending",
+            "status":  "pending",
             "message": "Your admin account is pending approval from an existing administrator.",
             "user": {
-                "id": created["id"],
-                "name": created["name"],
+                "id":    created["id"],
+                "name":  created["name"],
                 "email": created["email"],
-                "role": created["role"],
+                "role":  created["role"],
             },
         }
 
     token = create_access_token({"sub": str(created["id"]), "role": created["role"]})
     return Token(access_token=token, token_type="bearer", user={
-        "id": created["id"], "name": created["name"],
-        "email": created["email"], "role": created["role"],
+        "id":          created["id"],
+        "name":        created["name"],
+        "email":       created["email"],
+        "role":        created["role"],
+        "employee_id": created.get("employee_id"),
+        "avatar_url":  created.get("avatar_url"),
+        "created_at":  created.get("created_at"),
     })
 
 
@@ -233,8 +251,15 @@ def login(form_data: UserLogin):
 
     token = create_access_token({"sub": str(user["id"]), "role": user["role"]})
     return Token(access_token=token, token_type="bearer", user={
-        "id": user["id"], "name": user["name"],
-        "email": user["email"], "role": user["role"],
+        "id":          user["id"],
+        "name":        user["name"],
+        "email":       user["email"],
+        "role":        user["role"],
+        "employee_id": user.get("employee_id"),
+        "avatar_url":  user.get("avatar_url"),
+        "department":  user.get("department"),
+        "phone":       user.get("phone"),
+        "created_at":  user.get("created_at"),
     })
 
 
@@ -288,3 +313,20 @@ def reset_password(body: PasswordReset):
 @router.post("/logout")
 async def logout(current_user: dict = Depends(get_current_user)):
     return {"message": "Logged out successfully"}
+
+class ChangePassword(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.post("/change-password")
+def change_password(body: ChangePassword, current_user: dict = Depends(get_current_user)):
+    supabase = get_supabase()
+    user = supabase.table("users").select("password_hash").eq("id", current_user["id"]).single().execute().data
+    if not user or not verify_password(body.current_password, user["password_hash"]):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    if len(body.new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
+    hashed = hash_password(body.new_password)
+    supabase.table("users").update({"password_hash": hashed, "updated_at": datetime.now(timezone.utc).isoformat()}).eq("id", current_user["id"]).execute()
+    return {"message": "Password changed successfully"}

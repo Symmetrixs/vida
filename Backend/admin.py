@@ -1,6 +1,7 @@
 import os
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from supabase import create_client, Client
 from auth import get_current_user
@@ -115,30 +116,82 @@ def reject_user(user_id: str, admin: dict = Depends(require_admin)):
 
 
 @router.get("/analytics")
-def get_analytics(admin: dict = Depends(require_admin)):
+def get_analytics(
+    date_from:   Optional[str] = Query(None),
+    date_to:     Optional[str] = Query(None),
+    building_id: Optional[str] = Query(None),
+    inspector_id: Optional[str] = Query(None),
+    admin: dict = Depends(require_admin),
+):
     supabase = get_supabase()
-    findings = supabase.table("findings").select("defect_type, severity, created_at").execute().data or []
-    inspections = supabase.table("inspections").select("status, created_at").execute().data or []
 
-    defect_counts = {}
+    insp_q = supabase.table("inspections").select("id, status, created_at, inspection_date, building_id, inspector_id, buildings(name, code), users!inspector_id(name)")
+    if date_from:
+        insp_q = insp_q.gte("inspection_date", date_from)
+    if date_to:
+        insp_q = insp_q.lte("inspection_date", date_to)
+    if building_id:
+        insp_q = insp_q.eq("building_id", building_id)
+    if inspector_id:
+        insp_q = insp_q.eq("inspector_id", inspector_id)
+    inspections = insp_q.execute().data or []
+    insp_ids    = [i["id"] for i in inspections]
+
+    all_findings = supabase.table("findings").select("defect_type, severity, created_at, inspection_id").execute().data or []
+    findings = [f for f in all_findings if f.get("inspection_id") in insp_ids] if insp_ids else []
+
+    defect_counts   = {}
+    severity_counts = {}
+    monthly_findings = {}
     for f in findings:
         dt = f.get("defect_type", "unknown")
         defect_counts[dt] = defect_counts.get(dt, 0) + 1
-
-    severity_counts = {}
-    for f in findings:
         sv = f.get("severity", "unknown")
         severity_counts[sv] = severity_counts.get(sv, 0) + 1
+        m = (f.get("created_at") or "")[:7]
+        if m:
+            monthly_findings[m] = monthly_findings.get(m, 0) + 1
 
-    monthly_inspections = {}
+    monthly_insp = {}
+    status_counts = {}
+    by_inspector  = {}
+    by_building   = {}
     for insp in inspections:
-        month = insp.get("created_at", "")[:7]
-        monthly_inspections[month] = monthly_inspections.get(month, 0) + 1
+        m = (insp.get("inspection_date") or insp.get("created_at") or "")[:7]
+        if m:
+            monthly_insp[m] = monthly_insp.get(m, 0) + 1
+        s = insp.get("status", "unknown")
+        status_counts[s] = status_counts.get(s, 0) + 1
+        iname = (insp.get("users") or {}).get("name", "Unknown")
+        by_inspector[iname] = by_inspector.get(iname, 0) + 1
+        bname = (insp.get("buildings") or {}).get("name", "Unknown")
+        bcode = (insp.get("buildings") or {}).get("code", "")
+        entry = by_building.get(bname, {"count": 0, "code": bcode})
+        entry["count"] += 1
+        by_building[bname] = entry
+
+    buildings_list = supabase.table("buildings").select("id, name, code").order("name").execute().data or []
+    users_count    = len(supabase.table("users").select("id").execute().data or [])
+    reports_count  = len(supabase.table("reports").select("id").execute().data or [])
+    inspectors     = supabase.table("users").select("id, name, role").neq("role", "admin").eq("is_active", True).order("name").execute().data or []
 
     return {
-        "defect_by_type": [{"type": k, "count": v} for k, v in defect_counts.items()],
-        "defect_by_severity": [{"severity": k, "count": v} for k, v in severity_counts.items()],
-        "monthly_inspections": [{"month": k, "count": v} for k, v in sorted(monthly_inspections.items())],
+        "totals": {
+            "users":       users_count,
+            "buildings":   len(buildings_list),
+            "inspections": len(inspections),
+            "findings":    len(findings),
+            "reports":     reports_count,
+        },
+        "defect_by_type":      sorted([{"type": k, "count": v} for k, v in defect_counts.items()], key=lambda x: -x["count"]),
+        "defect_by_severity":  [{"severity": k, "count": v} for k, v in severity_counts.items()],
+        "monthly_inspections": [{"month": k, "count": v} for k, v in sorted(monthly_insp.items())],
+        "monthly_findings":    [{"month": k, "count": v} for k, v in sorted(monthly_findings.items())],
+        "status_breakdown":    [{"status": k, "count": v} for k, v in status_counts.items()],
+        "by_inspector":        sorted([{"name": k, "count": v} for k, v in by_inspector.items()], key=lambda x: -x["count"]),
+        "by_building":         sorted([{"name": k, "count": v["count"], "code": v["code"]} for k, v in by_building.items()], key=lambda x: -x["count"]),
+        "buildings":           buildings_list,
+        "inspectors":          inspectors,
     }
 
 
