@@ -183,6 +183,7 @@ def delete_report(report_id: str, current_user: dict = Depends(get_current_user)
         raise HTTPException(status_code=404, detail="Report not found")
     if current_user["role"] not in ("admin",) and existing.data.get("created_by") != current_user["id"]:
         raise HTTPException(status_code=403, detail="Not authorised")
+    supabase.table("shared_reports").delete().eq("report_id", report_id).execute()
     supabase.table("reports").delete().eq("id", report_id).execute()
     return {"message": "Report deleted"}
 

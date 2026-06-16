@@ -197,11 +197,13 @@ export default function InspectionPhoto({ inspectionId: propId, embedded = false
 
   const handleScan = async (photo) => {
     if (aiResults[photo.id]) {
+      await api.delete(`/findings/by-photo/${photo.id}`).catch(() => {});
       setAiResults(prev => { const n = {...prev}; delete n[photo.id]; return n; });
       toast("AI removed", { icon: "🗑" }); return;
     }
     setScanning(photo.id);
     try {
+      await api.delete(`/findings/by-photo/${photo.id}`).catch(() => {});
       const blob = await fetch(photo.url).then(r => r.blob());
       const fd   = new FormData(); fd.append("file", blob, "photo.jpg");
       const r    = await api.post("/ai/detect", fd, { headers: { "Content-Type": "multipart/form-data" } });

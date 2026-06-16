@@ -83,9 +83,20 @@ def update_finding(finding_id: str, body: FindingUpdate, current_user: dict = De
     return result.data[0]
 
 
+@router.delete("/by-photo/{photo_id}")
+def delete_findings_by_photo(photo_id: str, current_user: dict = Depends(get_current_user)):
+    supabase = get_supabase()
+    finding_ids = [f["id"] for f in (supabase.table("findings").select("id").eq("photo_id", photo_id).execute().data or [])]
+    if finding_ids:
+        supabase.table("recommendations").delete().in_("finding_id", finding_ids).execute()
+    supabase.table("findings").delete().eq("photo_id", photo_id).execute()
+    return {"deleted": len(finding_ids)}
+
+
 @router.delete("/{finding_id}")
 def delete_finding(finding_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
+    supabase.table("recommendations").delete().eq("finding_id", finding_id).execute()
     supabase.table("findings").delete().eq("id", finding_id).execute()
     return {"message": "Finding deleted"}
 

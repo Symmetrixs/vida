@@ -104,6 +104,32 @@ def delete_inspection(inspection_id: str, current_user: dict = Depends(get_curre
         raise HTTPException(status_code=404, detail="Inspection not found")
     if current_user["role"] == "inspector" and existing.data["inspector_id"] != current_user["id"]:
         raise HTTPException(status_code=403, detail="Not authorised")
+
+    group_ids = [g["id"] for g in (supabase.table("inspection_groups").select("id").eq("inspection_id", inspection_id).execute().data or [])]
+    if group_ids:
+        supabase.table("group_annotations").delete().in_("group_id", group_ids).execute()
+        supabase.table("group_photos").delete().in_("group_id", group_ids).execute()
+    supabase.table("inspection_groups").delete().eq("inspection_id", inspection_id).execute()
+
+    finding_ids = [f["id"] for f in (supabase.table("findings").select("id").eq("inspection_id", inspection_id).execute().data or [])]
+    if finding_ids:
+        supabase.table("recommendations").delete().in_("finding_id", finding_ids).execute()
+    supabase.table("findings").delete().eq("inspection_id", inspection_id).execute()
+
+    report_ids = [r["id"] for r in (supabase.table("reports").select("id").eq("inspection_id", inspection_id).execute().data or [])]
+    if report_ids:
+        supabase.table("shared_reports").delete().in_("report_id", report_ids).execute()
+    supabase.table("reports").delete().eq("inspection_id", inspection_id).execute()
+
+    photos = supabase.table("photos").select("filename").eq("inspection_id", inspection_id).execute().data or []
+    filenames = [p["filename"] for p in photos if p.get("filename")]
+    if filenames:
+        try:
+            supabase.storage.from_(os.getenv("STORAGE_BUCKET", "vida-photos")).remove(filenames)
+        except Exception:
+            pass
+    supabase.table("photos").delete().eq("inspection_id", inspection_id).execute()
+
     supabase.table("inspections").delete().eq("id", inspection_id).execute()
     return {"message": "Inspection deleted"}
 

@@ -39,13 +39,14 @@ class SaveGroupsBody(BaseModel):
 
 @router.get("/{inspection_id}")
 def get_groups(inspection_id: str, current_user: dict = Depends(get_current_user)):
-    groups = get_supabase().table("inspection_groups").select("*").eq("inspection_id", inspection_id).order("sort_order").execute().data or []
+    sb = get_supabase()
+    groups = sb.table("inspection_groups").select("*").eq("inspection_id", inspection_id).order("sort_order").execute().data or []
 
     result = []
     for g in groups:
         gid      = g["id"]
-        gp       = get_supabase().table("group_photos").select("photo_id, sort_order").eq("group_id", gid).order("sort_order").execute().data or []
-        ann_rows = get_supabase().table("group_annotations").select("actions, layout, canvas_data").eq("group_id", gid).execute().data or []
+        gp       = sb.table("group_photos").select("photo_id, sort_order").eq("group_id", gid).order("sort_order").execute().data or []
+        ann_rows = sb.table("group_annotations").select("actions, layout, canvas_data").eq("group_id", gid).execute().data or []
         ann      = ann_rows[0] if ann_rows else None
         result.append({
             "id":         gid,
@@ -59,47 +60,50 @@ def get_groups(inspection_id: str, current_user: dict = Depends(get_current_user
 
 @router.post("/{inspection_id}/save")
 def save_groups(inspection_id: str, body: SaveGroupsBody, current_user: dict = Depends(get_current_user)):
-    existing = get_supabase().table("inspection_groups").select("id").eq("inspection_id", inspection_id).execute().data or []
+    sb = get_supabase()
+    existing = sb.table("inspection_groups").select("id").eq("inspection_id", inspection_id).execute().data or []
     existing_ids = {r["id"] for r in existing}
 
     incoming_ids = {g.id for g in body.groups if g.id}
     to_delete    = existing_ids - incoming_ids
     if to_delete:
-        get_supabase().table("inspection_groups").delete().in_("id", list(to_delete)).execute()
+        sb.table("group_annotations").delete().in_("group_id", list(to_delete)).execute()
+        sb.table("group_photos").delete().in_("group_id", list(to_delete)).execute()
+        sb.table("inspection_groups").delete().in_("id", list(to_delete)).execute()
 
     saved = []
     for i, g in enumerate(body.groups):
         if g.id and g.id in existing_ids:
-            row = get_supabase().table("inspection_groups").update({
+            row = sb.table("inspection_groups").update({
                 "label": g.label, "sort_order": i
             }).eq("id", g.id).execute().data[0]
         else:
-            row = get_supabase().table("inspection_groups").insert({
+            row = sb.table("inspection_groups").insert({
                 "inspection_id": inspection_id, "label": g.label, "sort_order": i
             }).execute().data[0]
 
         gid = row["id"]
-        get_supabase().table("group_photos").delete().eq("group_id", gid).execute()
+        sb.table("group_photos").delete().eq("group_id", gid).execute()
         if g.photos:
-            get_supabase().table("group_photos").insert([
+            sb.table("group_photos").insert([
                 {"group_id": gid, "photo_id": p.photo_id, "sort_order": p.sort_order}
                 for p in g.photos
             ]).execute()
 
         if g.annotation:
-            ann_exists = get_supabase().table("group_annotations").select("id").eq("group_id", gid).execute().data
+            ann_exists = sb.table("group_annotations").select("id").eq("group_id", gid).execute().data
             ann_data   = {
-                "group_id":     gid,
+                "group_id":      gid,
                 "inspection_id": inspection_id,
-                "actions":      g.annotation.actions,
-                "layout":       g.annotation.layout,
-                "canvas_data":  g.annotation.canvas_data,
-                "updated_at":   "now()",
+                "actions":       g.annotation.actions,
+                "layout":        g.annotation.layout,
+                "canvas_data":   g.annotation.canvas_data,
+                "updated_at":    "now()",
             }
             if ann_exists:
-                get_supabase().table("group_annotations").update(ann_data).eq("group_id", gid).execute()
+                sb.table("group_annotations").update(ann_data).eq("group_id", gid).execute()
             else:
-                get_supabase().table("group_annotations").insert(ann_data).execute()
+                sb.table("group_annotations").insert(ann_data).execute()
 
         saved.append({"id": gid, "label": g.label})
 
@@ -108,7 +112,12 @@ def save_groups(inspection_id: str, body: SaveGroupsBody, current_user: dict = D
 
 @router.delete("/{inspection_id}")
 def delete_all_groups(inspection_id: str, current_user: dict = Depends(get_current_user)):
-    get_supabase().table("inspection_groups").delete().eq("inspection_id", inspection_id).execute()
+    sb = get_supabase()
+    group_ids = [g["id"] for g in (sb.table("inspection_groups").select("id").eq("inspection_id", inspection_id).execute().data or [])]
+    if group_ids:
+        sb.table("group_annotations").delete().in_("group_id", group_ids).execute()
+        sb.table("group_photos").delete().in_("group_id", group_ids).execute()
+    sb.table("inspection_groups").delete().eq("inspection_id", inspection_id).execute()
     return {"deleted": True}
 
 
@@ -118,7 +127,8 @@ class GroupNameUpdate(BaseModel):
 
 @router.patch("/group/{group_id}")
 def update_group_name(group_id: str, body: GroupNameUpdate, current_user: dict = Depends(get_current_user)):
-    result = get_supabase().table("inspection_groups").update({"name": body.name}).eq("id", group_id).execute()
+    sb = get_supabase()
+    result = sb.table("inspection_groups").update({"name": body.name}).eq("id", group_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Group not found")
     return result.data[0]

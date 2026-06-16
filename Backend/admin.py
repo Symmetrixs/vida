@@ -74,6 +74,12 @@ def update_user(user_id: str, body: UserUpdate, admin: dict = Depends(require_ad
 @router.delete("/users/{user_id}")
 def delete_user(user_id: str, admin: dict = Depends(require_admin)):
     supabase = get_supabase()
+    has_insp = supabase.table("inspections").select("id").eq("inspector_id", user_id).limit(1).execute().data or []
+    has_rep  = supabase.table("reports").select("id").eq("created_by", user_id).limit(1).execute().data or []
+    if has_insp or has_rep:
+        raise HTTPException(status_code=400, detail="This user owns inspections or reports and cannot be deleted. Deactivate the account instead to preserve historical records.")
+    supabase.table("notifications").delete().eq("user_id", user_id).execute()
+    supabase.table("password_resets").delete().eq("user_id", user_id).execute()
     supabase.table("users").delete().eq("id", user_id).execute()
     return {"message": "User deleted"}
 

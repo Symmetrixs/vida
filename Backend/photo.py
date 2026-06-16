@@ -84,7 +84,13 @@ def delete_photo(photo_id: str, current_user: dict = Depends(get_current_user)):
     if current_user["role"] == "inspector" and photo["uploaded_by"] != current_user["id"]:
         raise HTTPException(status_code=403, detail="Not authorised")
 
-    supabase.storage.from_(STORAGE_BUCKET).remove([photo["filename"]])
+    supabase.table("group_photos").delete().eq("photo_id", photo_id).execute()
+    supabase.table("findings").delete().eq("photo_id", photo_id).execute()
+
+    try:
+        supabase.storage.from_(STORAGE_BUCKET).remove([photo["filename"]])
+    except Exception:
+        pass
     supabase.table("photos").delete().eq("id", photo_id).execute()
     return {"message": "Photo deleted"}
 

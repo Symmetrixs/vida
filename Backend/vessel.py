@@ -82,6 +82,9 @@ def delete_building(building_id: str, current_user: dict = Depends(get_current_u
     if current_user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
     supabase = get_supabase()
+    linked = supabase.table("inspections").select("id").eq("building_id", building_id).limit(1).execute().data or []
+    if linked:
+        raise HTTPException(status_code=400, detail="Cannot delete a building that still has inspections. Delete or reassign its inspections first.")
     supabase.table("buildings").delete().eq("id", building_id).execute()
     return {"message": "Building deleted"}
 

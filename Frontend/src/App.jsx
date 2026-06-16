@@ -26,8 +26,6 @@ import InspectionPart2   from "./view/Inspector/InspectionPart2.jsx";
 import InspectionPart3   from "./view/Inspector/InspectionPart3.jsx";
 import InspectionPhoto   from "./view/Inspector/InspectionPhoto.jsx";
 import EditInspectionPart1 from "./view/Inspector/EditInspectionPart1.jsx";
-import AddEquipment      from "./view/Inspector/AddEquipment.jsx";
-import EditEquipment     from "./view/Inspector/EditEquipment.jsx";
 import ReportManagement  from "./view/Inspector/ReportManagement.jsx";
 import ReportView        from "./view/Inspector/ReportView.jsx";
 import StatisticAnalysis from "./view/Inspector/StatisticAnalysis.jsx";
@@ -94,8 +92,6 @@ export default function App() {
           <Route path="inspections/new/part3"   element={<InspectionPart3 />} />
           <Route path="inspections/:id/photo"   element={<InspectionPhoto />} />
           <Route path="inspections/:id/edit"    element={<EditInspectionPart1 />} />
-          <Route path="equipment/add"           element={<AddEquipment />} />
-          <Route path="equipment/:id/edit"      element={<EditEquipment />} />
           <Route path="reports"                 element={<ReportManagement />} />
           <Route path="reports/:id"             element={<ReportView />} />
           <Route path="statistics"              element={<StatisticAnalysis />} />
