@@ -5,10 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from supabase import create_client, Client
 from auth import get_current_user
+from complaint import sync_complaint
 
 router = APIRouter()
 
 LOCK_DAYS = 3
+MANAGER_ROLES = ("admin", "facility_manager")
 
 
 def get_supabase() -> Client:
@@ -91,9 +93,11 @@ def get_shareable_users(current_user: dict = Depends(get_current_user)):
 @router.post("/", status_code=201)
 def create_report(body: ReportCreate, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    insp = supabase.table("inspections").select("id, status").eq("id", body.inspection_id).single().execute()
+    insp = supabase.table("inspections").select("id, status, inspector_id").eq("id", body.inspection_id).execute()
     if not insp.data:
         raise HTTPException(status_code=404, detail="Inspection not found")
+    if current_user["role"] not in MANAGER_ROLES and insp.data[0]["inspector_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorised")
     data = body.model_dump()
     data["created_by"] = current_user["id"]
     data["status"] = "draft"
@@ -101,6 +105,7 @@ def create_report(body: ReportCreate, current_user: dict = Depends(get_current_u
     result = supabase.table("reports").insert(data).execute()
     if not result.data:
         raise HTTPException(status_code=500, detail="Failed to create report")
+    sync_complaint(body.inspection_id, current_user, started=True)
     return result.data[0]
 
 
@@ -172,19 +177,22 @@ def update_report(report_id: str, body: ReportUpdate, current_user: dict = Depen
         updates["row_data"] = body.row_data
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
     result = supabase.table("reports").update(updates).eq("id", report_id).execute()
+    if "status" in updates:
+        sync_complaint(existing.data.get("inspection_id"), current_user)
     return result.data[0]
 
 
 @router.delete("/{report_id}")
 def delete_report(report_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    existing = supabase.table("reports").select("created_by").eq("id", report_id).single().execute()
+    existing = supabase.table("reports").select("created_by, inspection_id").eq("id", report_id).single().execute()
     if not existing.data:
         raise HTTPException(status_code=404, detail="Report not found")
     if current_user["role"] not in ("admin",) and existing.data.get("created_by") != current_user["id"]:
         raise HTTPException(status_code=403, detail="Not authorised")
     supabase.table("shared_reports").delete().eq("report_id", report_id).execute()
     supabase.table("reports").delete().eq("id", report_id).execute()
+    sync_complaint(existing.data.get("inspection_id"), current_user)
     return {"message": "Report deleted"}
 
 
@@ -199,6 +207,7 @@ def publish_report(report_id: str, current_user: dict = Depends(get_current_user
         "status":       "published",
         "published_at": datetime.now(timezone.utc).isoformat(),
     }).eq("id", report_id).execute()
+    sync_complaint(existing.data.get("inspection_id"), current_user)
     return result.data[0]
 
 

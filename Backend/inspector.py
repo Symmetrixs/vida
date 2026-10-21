@@ -1,11 +1,15 @@
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from pydantic import BaseModel
 from supabase import create_client, Client
 from auth import get_current_user
+from complaint import TRACKED_STATUSES, overdue_info, resolved_late
+from public import format_reference
 import uuid
+
+RESOLVED_TASK_DAYS = 7
 
 router = APIRouter()
 
@@ -198,6 +202,57 @@ def stats(
         "viewable_users":        viewable_users,
         "buildings":             buildings_list,
     }
+
+
+@router.get("/assigned-tasks")
+def assigned_tasks(current_user: dict = Depends(get_current_user)):
+    supabase = get_supabase()
+    rows = (
+        supabase.table("complaints")
+        .select(
+            "ref_no, floor, location_note, description, status, due_date, reviewed_at, started_at, resolved_at, "
+            "buildings(name, code), inspections!inner(id, title, status, inspector_id)"
+        )
+        .eq("inspections.inspector_id", current_user["id"])
+        .in_("status", list(TRACKED_STATUSES))
+        .execute()
+        .data
+        or []
+    )
+    cutoff = datetime.now(timezone.utc) - timedelta(days=RESOLVED_TASK_DAYS)
+    tasks = []
+    for row in rows:
+        if row["status"] == "resolved" and row.get("resolved_at"):
+            if datetime.fromisoformat(row["resolved_at"].replace("Z", "+00:00")) < cutoff:
+                continue
+        inspection = row.get("inspections") or {}
+        is_overdue, days_overdue = overdue_info(row["status"], row.get("due_date"))
+        tasks.append({
+            "reference":         format_reference(row["ref_no"]),
+            "status":            row["status"],
+            "building":          row.get("buildings"),
+            "floor":             row["floor"],
+            "location_note":     row["location_note"],
+            "description":       row["description"],
+            "due_date":          row.get("due_date"),
+            "assigned_at":       row.get("reviewed_at"),
+            "resolved_at":       row.get("resolved_at"),
+            "is_overdue":        is_overdue,
+            "days_overdue":      days_overdue,
+            "resolved_late":     row["status"] == "resolved" and resolved_late(row.get("due_date"), row.get("resolved_at")),
+            "inspection_id":     inspection.get("id"),
+            "inspection_title":  inspection.get("title"),
+            "inspection_status": inspection.get("status"),
+        })
+    tasks.sort(key=lambda t: (
+        t["status"] == "resolved",
+        not t["is_overdue"],
+        -t["days_overdue"],
+        t["due_date"] is None,
+        t["due_date"] or "",
+        t["assigned_at"] or "",
+    ))
+    return tasks
 
 
 @router.get("/dashboard")

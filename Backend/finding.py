@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from supabase import create_client, Client
 from auth import get_current_user
+from complaint import sync_complaint
 
 router = APIRouter()
 
@@ -69,6 +70,7 @@ def create_finding(body: FindingCreate, current_user: dict = Depends(get_current
     result = supabase.table("findings").insert(data).execute()
     if not result.data:
         raise HTTPException(status_code=500, detail="Failed to create finding")
+    sync_complaint(body.inspection_id, current_user, started=True)
     return result.data[0]
 
 

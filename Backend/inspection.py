@@ -5,8 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from supabase import create_client, Client
 from auth import get_current_user
+from complaint import mark_started, release_complaint, sync_complaint
 
 router = APIRouter()
+
+MANAGER_ROLES = ("admin", "facility_manager")
 
 
 def get_supabase() -> Client:
@@ -65,6 +68,7 @@ def get_inspection(inspection_id: str, current_user: dict = Depends(get_current_
     insp = result.data
     if current_user["role"] == "inspector" and insp.get("inspector_id") != current_user["id"]:
         raise HTTPException(status_code=403, detail="Not authorised")
+    mark_started(inspection_id, current_user, insp.get("inspector_id"))
     return insp
 
 
@@ -93,6 +97,7 @@ def update_inspection(inspection_id: str, body: InspectionUpdate, current_user: 
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
     result = supabase.table("inspections").update(updates).eq("id", inspection_id).execute()
+    sync_complaint(inspection_id, current_user, started=True)
     return result.data[0]
 
 
@@ -105,7 +110,9 @@ def delete_inspection(inspection_id: str, current_user: dict = Depends(get_curre
     if current_user["role"] == "inspector" and existing.data["inspector_id"] != current_user["id"]:
         raise HTTPException(status_code=403, detail="Not authorised")
 
-    group_ids = [g["id"] for g in (supabase.table("inspection_groups").select("id").eq("inspection_id", inspection_id).execute().data or [])]
+    release_complaint(supabase, inspection_id)
+
+    group_ids =[g["id"] for g in (supabase.table("inspection_groups").select("id").eq("inspection_id", inspection_id).execute().data or [])]
     if group_ids:
         supabase.table("group_annotations").delete().in_("group_id", group_ids).execute()
         supabase.table("group_photos").delete().in_("group_id", group_ids).execute()
@@ -137,12 +144,16 @@ def delete_inspection(inspection_id: str, current_user: dict = Depends(get_curre
 @router.post("/{inspection_id}/submit")
 def submit_inspection(inspection_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
+    existing = supabase.table("inspections").select("inspector_id").eq("id", inspection_id).execute().data
+    if not existing:
+        raise HTTPException(status_code=404, detail="Inspection not found")
+    if current_user["role"] not in MANAGER_ROLES and existing[0]["inspector_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorised")
     result = supabase.table("inspections").update({
         "status": "submitted",
         "submitted_at": datetime.now(timezone.utc).isoformat(),
     }).eq("id", inspection_id).execute()
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Inspection not found")
+    sync_complaint(inspection_id, current_user, started=True)
     return result.data[0]
 
 

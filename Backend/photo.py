@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from supabase import create_client, Client
 from auth import get_current_user
+from complaint import mark_started, sync_complaint
 
 router = APIRouter()
 
@@ -57,6 +58,7 @@ async def upload_photo(
     result = supabase.table("photos").insert(record).execute()
     if not result.data:
         raise HTTPException(status_code=500, detail="Failed to save photo record")
+    sync_complaint(inspection_id, current_user, started=True)
     return result.data[0]
 
 
@@ -70,6 +72,7 @@ def list_photos(inspection_id: str, current_user: dict = Depends(get_current_use
         .order("created_at", desc=False)
         .execute()
     )
+    mark_started(inspection_id, current_user)
     return result.data or []
 
 

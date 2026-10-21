@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ClipboardList, Building2, FileText, Plus, ArrowRight, AlertTriangle, CheckCircle, Clock } from "lucide-react";
+import { ClipboardList, Building2, FileText, Plus, ArrowRight, AlertTriangle, CheckCircle, Clock, Inbox, CalendarClock } from "lucide-react";
 import api from "../../api/axios.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 
@@ -19,23 +19,47 @@ const QuickCard = ({ to, icon: Icon, label, color, delay }) => (
   </motion.div>
 );
 
+const TASK_BADGE = { assigned: "badge-gray", in_progress: "badge-blue", resolved: "badge-green" };
+const TASK_LABEL = { assigned: "assigned", in_progress: "in progress", resolved: "resolved" };
+const fmtDay = (d) => new Date(`${d}T00:00:00`).toLocaleDateString("en-MY", { dateStyle: "medium" });
+
+function TaskDue({ task }) {
+  if (task.is_overdue) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">
+        <AlertTriangle size={11}/> Overdue by {task.days_overdue} day{task.days_overdue > 1 ? "s" : ""}
+      </span>
+    );
+  }
+  if (task.resolved_late) return <span className="text-[11px] font-medium text-red-600 dark:text-red-400">Resolved late</span>;
+  if (task.due_date && task.status !== "resolved") {
+    return <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400"><CalendarClock size={11}/> Due {fmtDay(task.due_date)}</span>;
+  }
+  if (!task.due_date && task.status !== "resolved") return <span className="text-[11px] text-slate-400">No due date</span>;
+  return null;
+}
+
 export default function Home() {
   const { user } = useAuth();
   const [dashboard, setDashboard] = useState(null);
   const [stats, setStats] = useState(null);
+  const [tasks, setTasks] = useState([]);
 
   useEffect(() => {
     Promise.all([api.get("/inspector/dashboard"), api.get("/inspector/stats")])
       .then(([d, s]) => { setDashboard(d.data); setStats(s.data); })
       .catch(() => {});
+    api.get("/inspector/assigned-tasks").then(r => setTasks(r.data)).catch(() => {});
   }, []);
+
+  const openTasks = tasks.filter(t => t.status !== "resolved").length;
 
   const statusIcon = (s) => ({ completed: <CheckCircle size={14} className="text-green-500"/>, submitted: <Clock size={14} className="text-blue-500"/>, draft: <AlertTriangle size={14} className="text-amber-500"/> }[s] || null);
 
   return (
     <div className="space-y-6">
       <div className="page-header">
-        <h1 className="page-title">Hello, {user?.name?.split(" ")[0]} 👋</h1>
+        <h1 className="page-title">Hello, {user?.name?.split(" ")[0]}</h1>
         <p className="page-subtitle">Manage your building inspections for UTeM campus</p>
       </div>
 
@@ -55,6 +79,33 @@ export default function Home() {
           <QuickCard to="/inspector/reports"               icon={FileText}      label="Reports"         color="bg-amber-500"    delay={0.15} />
         </div>
       </div>
+
+      {tasks.length > 0 && (
+        <motion.div className="card p-5" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }}>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2"><Inbox size={17} className="text-primary-600"/> Assigned tasks</h3>
+            <span className="text-xs text-slate-400">{openTasks} open</span>
+          </div>
+          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+            {tasks.map(task => (
+              <div key={task.reference} className={`py-3 flex items-center gap-3 ${task.is_overdue ? "border-l-4 border-red-500 pl-3 -ml-1" : ""}`}>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono text-sm font-semibold text-slate-800 dark:text-slate-200">{task.reference}</span>
+                    <span className={TASK_BADGE[task.status]}>{TASK_LABEL[task.status]}</span>
+                    <TaskDue task={task}/>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5 truncate">{task.building?.name} · {task.floor} · {task.location_note}</p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{task.description}</p>
+                </div>
+                {task.inspection_id && (
+                  <Link to={`/inspector/inspections/${task.inspection_id}/photo`} className="btn-secondary text-xs shrink-0">Open</Link>
+                )}
+              </div>
+            ))}
+          </div>
+        </motion.div>
+      )}
 
       <motion.div className="card p-5" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
         <div className="flex items-center justify-between mb-4">

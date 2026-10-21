@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional, Any
 from auth import get_current_user
+from complaint import sync_complaint
 from supabase import create_client, Client
 import os
 from dotenv import load_dotenv
@@ -107,6 +108,7 @@ def save_groups(inspection_id: str, body: SaveGroupsBody, current_user: dict = D
 
         saved.append({"id": gid, "label": g.label})
 
+    sync_complaint(inspection_id, current_user, started=True)
     return {"saved": len(saved), "groups": saved}
 
 

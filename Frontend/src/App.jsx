@@ -73,6 +73,7 @@ export default function App() {
           <Route path="vessels"       element={<Vessels />} />
           <Route path="complaints"    element={<Complaints />} />
           <Route path="reports"       element={<Reports />} />
+          <Route path="reports/:id"   element={<ReportView />} />
           <Route path="analytics"     element={<Analytics />} />
           <Route path="notifications" element={<AdminNotifications />} />
           <Route path="settings"      element={<Settings />} />

@@ -368,7 +368,7 @@ export default function ReportView() {
         try { Object.assign(existingRows, JSON.parse(rep.row_data)); } catch {}
       }
       setRows(existingRows);
-    }).catch(() => { toast.error("Failed to load report"); navigate("/inspector/reports"); })
+    }).catch(() => { toast.error("Failed to load report"); navigate("..", { relative: "path" }); })
       .finally(() => setLoading(false));
   }, [id]);
 
@@ -471,7 +471,7 @@ export default function ReportView() {
         toast.error("Export failed: " + e.message);
       } finally { setExporting(null); }
     }
-    navigate("/inspector/reports");
+    navigate("..", { relative: "path" });
   };
 
   if (loading) return (
@@ -485,7 +485,7 @@ export default function ReportView() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="page-header">
-        <button onClick={() => navigate("/inspector/reports")} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-primary-600 mb-3 transition-colors">
+        <button onClick={() => navigate("..", { relative: "path" })} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-primary-600 mb-3 transition-colors">
           <ArrowLeft size={15}/> Back to Reports
         </button>
         <div className="flex items-start justify-between gap-4 flex-wrap">
