@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Eye, EyeOff, LogIn, AlertCircle, Clock, XCircle } from "lucide-react";
+import { Eye, EyeOff, LogIn, AlertCircle, Clock, XCircle, Megaphone } from "lucide-react";
 import { useAuth } from "../../context/AuthContext.jsx";
 import toast from "react-hot-toast";
 import logo from "../../assets/company-logo.png";
@@ -12,14 +12,14 @@ const STATUS_SCREENS = {
     iconClass: "text-amber-500",
     bgClass: "bg-amber-100 dark:bg-amber-900/30",
     title: "Account Pending Approval",
-    message: "Your administrator account has not been approved yet. Please wait for an existing administrator to review your request.",
+    message: "Your account has not been approved yet. Please wait for an existing administrator to review your request.",
   },
   rejected: {
     icon: XCircle,
     iconClass: "text-red-500",
     bgClass: "bg-red-100 dark:bg-red-900/30",
     title: "Account Rejected",
-    message: "Your administrator account request has been rejected. Please contact your system administrator for assistance.",
+    message: "Your account request has been rejected. Please contact your system administrator for assistance.",
   },
 };
 
@@ -216,6 +216,13 @@ export default function Login() {
             </>
           )}
         </div>
+
+        <Link
+          to="/report-defect"
+          className="mt-4 flex items-center justify-center gap-2 w-full py-2.5 rounded-xl border border-white/20 bg-white/10 hover:bg-white/20 text-white text-sm font-medium transition-colors"
+        >
+          <Megaphone size={16} /> Report a defect without an account
+        </Link>
 
         <p className="text-center text-xs text-primary-400 mt-6">
           © {new Date().getFullYear()} UTeM – Faculty of ICT

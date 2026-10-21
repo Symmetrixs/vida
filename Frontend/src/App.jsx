@@ -6,6 +6,7 @@ import Login        from "./view/Auth/Login.jsx";
 import Register     from "./view/Auth/Register.jsx";
 import ForgotPassword  from "./view/Auth/ForgotPassword.jsx";
 import ResetPassword   from "./view/Auth/ResetPassword.jsx";
+import ReportDefect    from "./view/Public/ReportDefect.jsx";
 
 import AdminLayout  from "./view/Admin/AdminLayout.jsx";
 import Dashboard    from "./view/Admin/Dashboard.jsx";
@@ -16,6 +17,7 @@ import Analytics    from "./view/Admin/Analytics.jsx";
 import AdminNotifications from "./view/Admin/Notifications.jsx";
 import Settings     from "./view/Admin/Settings.jsx";
 import AdminProfile from "./view/Admin/Profile.jsx";
+import Complaints   from "./view/Admin/Complaints.jsx";
 
 import InspectorLayout   from "./view/Inspector/InspectorLayout.jsx";
 import Home              from "./view/Inspector/Home.jsx";
@@ -56,6 +58,7 @@ export default function App() {
         <Route path="/register"       element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password"  element={<ResetPassword />} />
+        <Route path="/report-defect"   element={<ReportDefect />} />
 
         <Route
           path="/admin"
@@ -68,6 +71,7 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="users"         element={<Users />} />
           <Route path="vessels"       element={<Vessels />} />
+          <Route path="complaints"    element={<Complaints />} />
           <Route path="reports"       element={<Reports />} />
           <Route path="analytics"     element={<Analytics />} />
           <Route path="notifications" element={<AdminNotifications />} />
@@ -96,6 +100,14 @@ export default function App() {
           <Route path="reports/:id"             element={<ReportView />} />
           <Route path="statistics"              element={<StatisticAnalysis />} />
           <Route path="team-reports"            element={<TeamSharedReport />} />
+          <Route
+            path="complaints"
+            element={
+              <ProtectedRoute allowedRoles={["facility_manager"]}>
+                <Complaints />
+              </ProtectedRoute>
+            }
+          />
           <Route path="profile"                 element={<Profile />} />
           <Route path="settings"               element={<InspectorSettings />} />
         </Route>

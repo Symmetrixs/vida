@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard, Users, Building2, FileText,
-  BarChart3, Bell, Settings, LogOut, X, User,
+  BarChart3, Bell, Settings, LogOut, X, User, Inbox,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
 import toast from "react-hot-toast";
@@ -13,6 +13,7 @@ const links = [
   { to: "/admin",              label: "Dashboard",     icon: LayoutDashboard, end: true },
   { to: "/admin/users",        label: "Users",         icon: Users },
   { to: "/admin/vessels",      label: "Buildings",     icon: Building2 },
+  { to: "/admin/complaints",   label: "Complaints",    icon: Inbox },
   { to: "/admin/reports",      label: "Reports",       icon: FileText },
   { to: "/admin/analytics",    label: "Analytics",     icon: BarChart3 },
   { to: "/admin/notifications",label: "Notifications", icon: Bell },

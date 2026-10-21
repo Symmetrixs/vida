@@ -4,7 +4,7 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -28,6 +28,8 @@ EMAIL_FROM = os.getenv("EMAIL_FROM", "")
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
+APPROVAL_ROLES = ("admin", "facility_manager")
+
 
 def get_supabase() -> Client:
     return create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -37,7 +39,7 @@ class UserRegister(BaseModel):
     name: str
     email: EmailStr
     password: str
-    role: str = "inspector"
+    role: Literal["inspector", "facility_manager", "admin"] = "inspector"
     employee_id: Optional[str] = None
 
 
@@ -182,9 +184,9 @@ def register(user: UserRegister):
         if emp_check.data:
             raise HTTPException(status_code=400, detail="This Matric No. / Employee ID is already registered to another account.")
 
-    hashed        = hash_password(user.password)
-    is_admin_role = user.role == "admin"
-    now           = datetime.now(timezone.utc).isoformat()
+    hashed         = hash_password(user.password)
+    needs_approval = user.role in APPROVAL_ROLES
+    now            = datetime.now(timezone.utc).isoformat()
 
     new_user = {
         "name":          user.name,
@@ -192,7 +194,7 @@ def register(user: UserRegister):
         "password_hash": hashed,
         "role":          user.role,
         "is_active":     True,
-        "is_approved":   None if is_admin_role else True,
+        "is_approved":   None if needs_approval else True,
         "created_at":    now,
     }
     if user.employee_id:
@@ -204,10 +206,10 @@ def register(user: UserRegister):
 
     created = result.data[0]
 
-    if is_admin_role:
+    if needs_approval:
         return {
             "status":  "pending",
-            "message": "Your admin account is pending approval from an existing administrator.",
+            "message": "Your account is pending approval from an existing administrator.",
             "user": {
                 "id":    created["id"],
                 "name":  created["name"],
@@ -242,7 +244,7 @@ def login(form_data: UserLogin):
     if not user.get("is_active", True):
         raise HTTPException(status_code=403, detail="Account deactivated")
 
-    if user.get("role") == "admin":
+    if user.get("role") in APPROVAL_ROLES:
         approved = user.get("is_approved")
         if approved is False:
             raise HTTPException(status_code=403, detail="Account rejected")

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Home, ClipboardList, Building2, FileText, BarChart2, Share2, User, Settings, LogOut, X, Menu as MenuIcon } from "lucide-react";
+import { Home, ClipboardList, Building2, FileText, BarChart2, Share2, User, Settings, LogOut, X, Inbox, Menu as MenuIcon } from "lucide-react";
 import TopNavBar from "../../components/TopNavBar.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
 import toast from "react-hot-toast";
@@ -12,6 +12,7 @@ const links = [
   { to: "/inspector",            label: "Home",        icon: Home,          end: true },
   { to: "/inspector/inspections",label: "Inspections", icon: ClipboardList },
   { to: "/inspector/vessels",    label: "Buildings",   icon: Building2 },
+  { to: "/inspector/complaints", label: "Complaints",  icon: Inbox, roles: ["facility_manager"] },
   { to: "/inspector/reports",    label: "Reports",     icon: FileText },
   { to: "/inspector/statistics", label: "Statistics",  icon: BarChart2 },
   { to: "/inspector/team-reports",label: "Shared",      icon: Share2 },
@@ -37,7 +38,7 @@ function Sidebar({ onClose }) {
         <button onClick={onClose} className="lg:hidden btn-ghost p-1.5 rounded-lg"><X size={18}/></button>
       </div>
       <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto scrollbar-thin">
-        {links.map(({ to, label, icon: Icon, end }) => (
+        {links.filter(l => !l.roles || l.roles.includes(user?.role)).map(({ to, label, icon: Icon, end }) => (
           <NavLink key={to} to={to} end={end} onClick={onClose}
             className={({ isActive }) => clsx(isActive ? "sidebar-link-active" : "sidebar-link-inactive")}>
             {({ isActive }) => (

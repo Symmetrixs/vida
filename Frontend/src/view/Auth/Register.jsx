@@ -73,7 +73,7 @@ export default function Register() {
             </motion.div>
             <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-2">Pending Approval</h2>
             <p className="text-sm text-slate-500 dark:text-slate-400 mb-2 leading-relaxed">
-              Your admin account has been created and is awaiting approval from an existing administrator.
+              Your account has been created and is awaiting approval from an existing administrator.
             </p>
             <p className="text-xs text-slate-400 dark:text-slate-500 mb-8">
               You will be able to sign in once your account has been approved. Please contact your system administrator if this takes too long.
@@ -141,7 +141,7 @@ export default function Register() {
                 <option value="admin">Administrator</option>
               </select>
               <AnimatePresence>
-                {form.role === "admin" && (
+                {(form.role === "admin" || form.role === "facility_manager") && (
                   <motion.div
                     initial={{ opacity: 0, height: 0 }}
                     animate={{ opacity: 1, height: "auto" }}
@@ -151,7 +151,7 @@ export default function Register() {
                     <div className="mt-2 flex items-start gap-2 px-3 py-2.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
                       <ShieldCheck size={15} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                       <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
-                        Admin accounts require approval from an existing administrator before you can sign in.
+                        Administrator and Facility Manager accounts require approval from an existing administrator before you can sign in.
                       </p>
                     </div>
                   </motion.div>

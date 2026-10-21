@@ -84,16 +84,16 @@ export default function Users() {
   const handleApprove = async (id) => {
     try {
       await api.patch(`/admin/users/${id}/approve`);
-      toast.success("Admin account approved");
+      toast.success("Account approved");
       fetchAll();
     } catch { toast.error("Failed to approve"); }
   };
 
   const handleReject = async (id) => {
-    if (!confirm("Reject this admin account request?")) return;
+    if (!confirm("Reject this account request?")) return;
     try {
       await api.patch(`/admin/users/${id}/reject`);
-      toast.success("Admin account rejected");
+      toast.success("Account rejected");
       fetchAll();
     } catch { toast.error("Failed to reject"); }
   };
@@ -106,7 +106,7 @@ export default function Users() {
   const roleColor = (r) => ({ admin: "badge-red", facility_manager: "badge-blue", inspector: "badge-green" }[r] || "badge-gray");
 
   const approvalBadge = (u) => {
-    if (u.role !== "admin") return null;
+    if (u.role !== "admin" && u.role !== "facility_manager") return null;
     if (u.is_approved === true) return <span className="badge-green">approved</span>;
     if (u.is_approved === false) return <span className="badge-red">rejected</span>;
     return <span className="badge-yellow">pending</span>;
@@ -130,7 +130,7 @@ export default function Users() {
             <div className="px-5 py-3.5 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-100 dark:border-amber-800/50 flex items-center gap-2">
               <Clock size={16} className="text-amber-600 dark:text-amber-400" />
               <span className="text-sm font-semibold text-amber-800 dark:text-amber-300">
-                Pending Admin Approvals ({pending.length})
+                Pending Account Approvals ({pending.length})
               </span>
             </div>
             <div className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -149,6 +149,7 @@ export default function Users() {
                     <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{u.name}</p>
                     <p className="text-xs text-slate-400 truncate">{u.email}</p>
                   </div>
+                  <span className={roleColor(u.role)}>{u.role?.replace("_", " ")}</span>
                   <span className="text-xs text-slate-400 hidden sm:block">
                     {new Date(u.created_at).toLocaleDateString("en-MY")}
                   </span>

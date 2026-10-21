@@ -16,6 +16,8 @@ from notification import router as notification_router
 from inspector import router as inspector_router
 from ai_detection import router as ai_router
 from group import router as group_router
+from public import router as public_router
+from complaint import router as complaint_router
 
 load_dotenv()
 
@@ -60,6 +62,8 @@ app.include_router(recommendation_router, prefix="/recommendations",  tags=["Rec
 app.include_router(notification_router,   prefix="/notifications",   tags=["Notifications"])
 app.include_router(inspector_router,      prefix="/inspector",       tags=["Inspector"])
 app.include_router(group_router,          prefix="/groups",          tags=["Groups"])
+app.include_router(public_router,         prefix="/public",          tags=["Public"])
+app.include_router(complaint_router,      prefix="/complaints",      tags=["Complaints"])
 
 
 @app.get("/", tags=["Health"])

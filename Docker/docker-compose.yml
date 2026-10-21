@@ -15,6 +15,7 @@ services:
     environment:
       - MODEL_PATH=/app/Model
       - CONFIDENCE_THRESHOLD=0.05
+      - TRUSTED_PROXY_HOSTS=frontend
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s

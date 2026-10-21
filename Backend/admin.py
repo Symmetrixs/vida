@@ -90,7 +90,7 @@ def pending_approvals(admin: dict = Depends(require_admin)):
     result = (
         supabase.table("users")
         .select("id, name, email, role, created_at")
-        .eq("role", "admin")
+        .in_("role", ["admin", "facility_manager"])
         .is_("is_approved", "null")
         .execute()
     )

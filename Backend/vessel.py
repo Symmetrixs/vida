@@ -85,6 +85,9 @@ def delete_building(building_id: str, current_user: dict = Depends(get_current_u
     linked = supabase.table("inspections").select("id").eq("building_id", building_id).limit(1).execute().data or []
     if linked:
         raise HTTPException(status_code=400, detail="Cannot delete a building that still has inspections. Delete or reassign its inspections first.")
+    complaints = supabase.table("complaints").select("id").eq("building_id", building_id).limit(1).execute().data or []
+    if complaints:
+        raise HTTPException(status_code=400, detail="Cannot delete a building that has public complaints on record.")
     supabase.table("buildings").delete().eq("id", building_id).execute()
     return {"message": "Building deleted"}
 
