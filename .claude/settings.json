@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(**/node_modules/**)",
+      "Read(**/dist/**)",
+      "Read(**/__pycache__/**)",
+      "Read(**/.venv/**)",
+      "Read(./Model/**)",
+      "Read(**/*.safetensors)",
+      "Read(**/*.pt)",
+      "Read(**/*.pth)",
+      "Read(**/*.onnx)",
+      "Read(**/*.ckpt)",
+      "Read(**/datasets/**)",
+      "Read(**/dataset/**)"
+    ]
+  }
+}
