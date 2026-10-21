@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Save, ArrowLeft, ClipboardList, Camera } from "lucide-react";
+import { Save, ArrowLeft, ClipboardList, Camera, Lock, Inbox, MapPin, CalendarClock, Image as ImageIcon } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
 import InspectionPhoto from "./InspectionPhoto.jsx";
@@ -14,6 +14,41 @@ const generateFloors = (count) => {
   return list;
 };
 
+const fmtDay = (d) => new Date(`${d}T00:00:00`).toLocaleDateString("en-MY", { dateStyle: "medium" });
+
+function ComplaintBox({ complaint }) {
+  return (
+    <motion.div className="card p-5 border-l-4 border-primary-500" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+        <h2 className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+          <Inbox size={17} className="text-primary-600"/> Original complaint
+          <span className="font-mono text-sm text-primary-700 dark:text-primary-300">{complaint.reference}</span>
+        </h2>
+        {complaint.due_date && (
+          <span className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400"><CalendarClock size={13}/> Due {fmtDay(complaint.due_date)}</span>
+        )}
+      </div>
+      <p className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300 mb-2">
+        <MapPin size={15} className="text-slate-400 mt-0.5 shrink-0"/>
+        <span><strong>{complaint.building?.name}</strong> ({complaint.building?.code}), {complaint.floor}. {complaint.location_note}</span>
+      </p>
+      <p className="text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap bg-slate-50 dark:bg-slate-800/50 rounded-xl p-3">{complaint.description}</p>
+      {complaint.photos?.length > 0 && (
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mt-3">
+          {complaint.photos.map((p, i) => p.url ? (
+            <a key={p.id} href={p.url} target="_blank" rel="noreferrer" className="block aspect-square rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700">
+              <img src={p.url} alt={`Reported photo ${i + 1}`} className="w-full h-full object-cover hover:scale-105 transition-transform"/>
+            </a>
+          ) : (
+            <div key={p.id} className="aspect-square rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400"><ImageIcon size={18}/></div>
+          ))}
+        </div>
+      )}
+      <p className="text-[11px] text-slate-400 mt-3">Reported by the public. Read only. These photos were also copied into the Photos tab for scanning.</p>
+    </motion.div>
+  );
+}
+
 export default function EditInspectionPart1() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -24,11 +59,18 @@ export default function EditInspectionPart1() {
   const [customFloor, setCustomFloor] = useState(false);
 
   const [locked, setLocked] = useState(false);
+  const [complaint, setComplaint] = useState(null);
 
   useEffect(() => {
-    Promise.all([api.get(`/inspections/${id}`), api.get("/buildings/")]).then(([insp, bldg]) => {
+    Promise.all([
+      api.get(`/inspections/${id}`),
+      api.get("/buildings/"),
+      api.get(`/inspections/${id}/complaint`).catch(() => ({ data: null })),
+    ]).then(([insp, bldg, comp]) => {
       const d = insp.data;
-      if (d.created_at) {
+      setComplaint(comp.data);
+      const openComplaintDraft = !!comp.data && d.status === "draft";
+      if (d.created_at && !openComplaintDraft) {
         const age = (Date.now() - new Date(d.created_at).getTime()) / (1000 * 60 * 60 * 24);
         if (age >= 3) setLocked(true);
       }
@@ -78,8 +120,13 @@ export default function EditInspectionPart1() {
     setLoading(true);
     try {
       await api.put(`/inspections/${id}`, form);
-      toast.success("Inspection updated");
-      navigate("/inspector/inspections");
+      if (complaint) {
+        toast.success("Details saved. Add photos and run the scan next.");
+        setTab("photos");
+      } else {
+        toast.success("Inspection updated");
+        navigate("/inspector/inspections");
+      }
     } catch { toast.error("Update failed"); }
     finally { setLoading(false); }
   };
@@ -98,6 +145,8 @@ export default function EditInspectionPart1() {
         </button>
         <h1 className="page-title">Edit Inspection</h1>
       </div>
+
+      {complaint && <ComplaintBox complaint={complaint}/>}
 
       <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-fit">
         <button
@@ -127,7 +176,7 @@ export default function EditInspectionPart1() {
           className="card p-6 flex flex-col items-center justify-center gap-3 py-12 text-center"
           initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
         >
-          <span className="text-5xl">🔒</span>
+          <Lock size={44} className="text-slate-400"/>
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Inspection Locked</h3>
           <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm">
             This inspection was created more than 3 days ago and can no longer be edited. Contact an administrator if changes are required.
@@ -235,6 +284,9 @@ export default function EditInspectionPart1() {
 
       {tab === "photos" && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+          {complaint && (
+            <p className="text-xs text-slate-500 dark:text-slate-400">Add any new photos, run the AI scan, then press Save &amp; Submit. Admins and facility managers are notified when you submit.</p>
+          )}
           <InspectionPhoto inspectionId={id} embedded />
           <div className="flex justify-end pt-2">
             <motion.button

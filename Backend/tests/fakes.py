@@ -59,6 +59,9 @@ class FakeBucket:
     def get_public_url(self, path):
         return f"https://storage.test/{self.name}/{path}"
 
+    def create_signed_url(self, path, expires_in):
+        return {"signedURL": f"https://signed.test/{self.name}/{path}?expires={expires_in}"}
+
 
 class FakeStorage:
     def __init__(self, db):

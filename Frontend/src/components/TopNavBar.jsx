@@ -46,6 +46,14 @@ export default function TopNavBar({ onMenuToggle }) {
     setUnreadCount((c) => Math.max(0, c - 1));
   };
 
+  const openNotification = (n) => {
+    if (!n.is_read) markRead(n.id).catch(() => {});
+    if (n.link && n.link.startsWith("/") && !n.link.startsWith("//")) {
+      setNotifOpen(false);
+      navigate(n.link);
+    }
+  };
+
   return (
     <header className="sticky top-0 z-30 h-16 glass border-b border-slate-200 dark:border-slate-800 flex items-center px-4 gap-3">
       <button
@@ -129,7 +137,7 @@ export default function TopNavBar({ onMenuToggle }) {
                     notifications.map((n) => (
                       <div
                         key={n.id}
-                        onClick={() => markRead(n.id)}
+                        onClick={() => openNotification(n)}
                         className={`px-4 py-3 border-b border-slate-50 dark:border-slate-800 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors ${!n.is_read ? "bg-blue-50/60 dark:bg-blue-900/10" : ""}`}
                       >
                         <p className={`text-sm font-medium ${!n.is_read ? "text-slate-900 dark:text-white" : "text-slate-600 dark:text-slate-400"}`}>{n.title}</p>

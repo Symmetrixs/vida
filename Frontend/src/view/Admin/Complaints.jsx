@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Inbox, X, Image as ImageIcon, MapPin, User, ClipboardCheck, Ban, CalendarClock, AlertTriangle, FileText, ExternalLink, Circle, CheckCircle2 } from "lucide-react";
 import api from "../../api/axios.js";
@@ -258,6 +258,12 @@ export default function Complaints() {
   const [tab, setTab] = useState("pending");
   const [loading, setLoading] = useState(true);
   const [openId, setOpenId] = useState(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  useEffect(() => {
+    const requested = searchParams.get("open");
+    if (requested) setOpenId(requested);
+  }, [searchParams]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -266,7 +272,10 @@ export default function Complaints() {
 
   useEffect(() => { load(); }, [load]);
 
-  const closeModal = useCallback(() => setOpenId(null), []);
+  const closeModal = useCallback(() => {
+    setOpenId(null);
+    setSearchParams({}, { replace: true });
+  }, [setSearchParams]);
   const counts = TABS.reduce((acc, t) => ({ ...acc, [t.key]: complaints.filter(c => c.status === t.key).length }), {});
   const overdueCounts = TABS.reduce((acc, t) => ({ ...acc, [t.key]: complaints.filter(c => c.status === t.key && c.is_overdue).length }), {});
   const visible = complaints.filter(c => c.status === tab);
@@ -329,7 +338,7 @@ export default function Complaints() {
             base={base}
             canOpenInspection={user?.role !== "admin"}
             onClose={closeModal}
-            onChanged={() => { setOpenId(null); load(); }}
+            onChanged={() => { closeModal(); load(); }}
           />
         )}
       </AnimatePresence>

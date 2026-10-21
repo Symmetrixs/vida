@@ -99,7 +99,7 @@ export default function Home() {
                   <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{task.description}</p>
                 </div>
                 {task.inspection_id && (
-                  <Link to={`/inspector/inspections/${task.inspection_id}/photo`} className="btn-secondary text-xs shrink-0">Open</Link>
+                  <Link to={`/inspector/inspections/${task.inspection_id}/edit`} className="btn-secondary text-xs shrink-0">Open</Link>
                 )}
               </div>
             ))}

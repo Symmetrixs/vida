@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from supabase import create_client, Client
 from auth import get_current_user
-from complaint import mark_started, release_complaint, sync_complaint
+from complaint import complaint_snapshot, mark_started, notify_complaint_submitted, release_complaint, sync_complaint
 
 router = APIRouter()
 
@@ -144,7 +144,7 @@ def delete_inspection(inspection_id: str, current_user: dict = Depends(get_curre
 @router.post("/{inspection_id}/submit")
 def submit_inspection(inspection_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    existing = supabase.table("inspections").select("inspector_id").eq("id", inspection_id).execute().data
+    existing = supabase.table("inspections").select("inspector_id, status").eq("id", inspection_id).execute().data
     if not existing:
         raise HTTPException(status_code=404, detail="Inspection not found")
     if current_user["role"] not in MANAGER_ROLES and existing[0]["inspector_id"] != current_user["id"]:
@@ -154,7 +154,20 @@ def submit_inspection(inspection_id: str, current_user: dict = Depends(get_curre
         "submitted_at": datetime.now(timezone.utc).isoformat(),
     }).eq("id", inspection_id).execute()
     sync_complaint(inspection_id, current_user, started=True)
+    if existing[0].get("status") != "submitted":
+        notify_complaint_submitted(inspection_id, current_user)
     return result.data[0]
+
+
+@router.get("/{inspection_id}/complaint")
+def inspection_complaint(inspection_id: str, current_user: dict = Depends(get_current_user)):
+    supabase = get_supabase()
+    rows = supabase.table("inspections").select("inspector_id").eq("id", inspection_id).execute().data
+    if not rows:
+        raise HTTPException(status_code=404, detail="Inspection not found")
+    if current_user["role"] not in MANAGER_ROLES and rows[0]["inspector_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorised")
+    return complaint_snapshot(supabase, inspection_id)
 
 
 @router.get("/{inspection_id}/findings")

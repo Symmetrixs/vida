@@ -221,6 +221,97 @@ def mark_started(inspection_id: Optional[str], actor: dict, inspector_id: Option
         print(f"[VIDA] complaint start check failed for inspection {inspection_id}: {e}")
 
 
+def signed_photos(supabase: Client, complaint_id: str) -> list:
+    photos = (
+        supabase.table("complaint_photos")
+        .select("id, storage_path, content_type, width, height")
+        .eq("complaint_id", complaint_id)
+        .order("created_at")
+        .execute()
+        .data
+        or []
+    )
+    bucket = supabase.storage.from_(COMPLAINT_BUCKET)
+    for photo in photos:
+        try:
+            photo["url"] = bucket.create_signed_url(photo["storage_path"], SIGNED_URL_SECONDS)["signedURL"]
+        except Exception:
+            photo["url"] = None
+        photo.pop("storage_path", None)
+    return photos
+
+
+def complaint_snapshot(supabase: Client, inspection_id: str) -> Optional[dict]:
+    rows = (
+        supabase.table("complaints")
+        .select("id, ref_no, floor, location_note, description, status, due_date, created_at, buildings(name, code)")
+        .eq("inspection_id", inspection_id)
+        .execute()
+        .data
+    )
+    if not rows:
+        return None
+    c = rows[0]
+    return {
+        "reference":     format_reference(c["ref_no"]),
+        "status":        c["status"],
+        "building":      c.get("buildings"),
+        "floor":         c["floor"],
+        "location_note": c["location_note"],
+        "description":   c["description"],
+        "due_date":      c.get("due_date"),
+        "received_at":   c.get("created_at"),
+        "photos":        signed_photos(supabase, c["id"]),
+    }
+
+
+def notify_complaint_submitted(inspection_id: str, actor: dict) -> int:
+    try:
+        supabase = get_supabase()
+        rows = (
+            supabase.table("complaints")
+            .select("id, ref_no, status")
+            .eq("inspection_id", inspection_id)
+            .in_("status", list(TRACKED_STATUSES))
+            .execute()
+            .data
+        )
+        if not rows:
+            return 0
+        complaint = rows[0]
+        reference = format_reference(complaint["ref_no"])
+        outcome = (
+            " The complaint is now resolved."
+            if complaint["status"] == "resolved"
+            else " The complaint stays in progress until the inspection report is published."
+        )
+        recipients = (
+            supabase.table("users")
+            .select("id, role, is_approved")
+            .in_("role", list(REVIEWER_ROLES))
+            .eq("is_active", True)
+            .execute()
+            .data
+            or []
+        )
+        now = datetime.now(timezone.utc).isoformat()
+        notes = [{
+            "user_id":    u["id"],
+            "title":      "Complaint inspection submitted",
+            "message":    f"{actor.get('name') or 'An inspector'} submitted the inspection for public complaint {reference}.{outcome}",
+            "type":       "info",
+            "link":       f"/admin/complaints?open={complaint['id']}" if u["role"] == "admin" else f"/inspector/inspections/{inspection_id}/edit",
+            "is_read":    False,
+            "created_at": now,
+        } for u in recipients if u.get("is_approved") is True]
+        if notes:
+            supabase.table("notifications").insert(notes).execute()
+        return len(notes)
+    except Exception as e:
+        print(f"[VIDA] complaint submit notification failed for inspection {inspection_id}: {e}")
+        return 0
+
+
 def release_complaint(supabase: Client, inspection_id: str) -> None:
     supabase.table("complaints").update({
         "status":        "pending",
@@ -267,22 +358,7 @@ def get_complaint(complaint_id: str, reviewer: dict = Depends(require_reviewer))
     if not rows:
         raise HTTPException(status_code=404, detail="Complaint not found")
     complaint = _shape(rows[0])
-    photos = (
-        supabase.table("complaint_photos")
-        .select("id, storage_path, content_type, width, height")
-        .eq("complaint_id", complaint_id)
-        .order("created_at")
-        .execute()
-        .data
-        or []
-    )
-    bucket = supabase.storage.from_(COMPLAINT_BUCKET)
-    for photo in photos:
-        try:
-            photo["url"] = bucket.create_signed_url(photo["storage_path"], SIGNED_URL_SECONDS)["signedURL"]
-        except Exception:
-            photo["url"] = None
-        photo.pop("storage_path", None)
+    photos = signed_photos(supabase, complaint_id)
     complaint["photos"] = photos
     complaint["photo_count"] = len(photos)
 
@@ -385,7 +461,7 @@ def convert_complaint(complaint_id: str, body: ConvertBody, reviewer: dict = Dep
             "title":      "New inspection assigned",
             "message":    f"Public complaint {reference} was converted into an inspection for you. Open it and run the defect scan.{due_text}",
             "type":       "info",
-            "link":       "/inspector",
+            "link":       f"/inspector/inspections/{inspection_id}/edit",
             "is_read":    False,
             "created_at": now,
         }).execute()

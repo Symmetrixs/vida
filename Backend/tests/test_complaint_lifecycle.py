@@ -156,6 +156,7 @@ def test_only_owner_or_manager_can_submit_or_create_report(client, login, monkey
     calls = []
     monkeypatch.setattr(inspection, "sync_complaint", lambda *a, **k: calls.append("inspection"))
     monkeypatch.setattr(report, "sync_complaint", lambda *a, **k: calls.append("report"))
+    monkeypatch.setattr(inspection, "notify_complaint_submitted", lambda *a, **k: 0)
     monkeypatch.setattr(inspection, "get_supabase", lambda: FakeSupabase(responses={
         ("inspections", "select"): [{"inspector_id": "owner"}],
         ("inspections", "update"): [{"id": "insp1", "status": "submitted"}],
