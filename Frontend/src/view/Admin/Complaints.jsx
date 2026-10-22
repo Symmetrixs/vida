@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
-import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Inbox, X, Image as ImageIcon, MapPin, User, ClipboardCheck, Ban, CalendarClock, AlertTriangle, FileText, Circle, CheckCircle2, ShieldAlert, Eye } from "lucide-react";
 import api from "../../api/axios.js";
-import { useAuth } from "../../context/AuthContext.jsx";
 import toast from "react-hot-toast";
 import clsx from "clsx";
 import { OPEN_STATUSES, STATUS_LABEL, STATUS_CLASS, SEVERITY_CLASS, fmtDateTime as fmtDate, fmtDay } from "../../utils/complaintUi.js";
@@ -16,6 +15,8 @@ const TABS = [
   { key: "reviewed",    label: "Reviewed" },
   { key: "rejected",    label: "Rejected" },
 ];
+
+const REVIEW_TABS = TABS.filter(t => t.key === "submitted" || t.key === "reviewed");
 
 const localToday = () => {
   const d = new Date();
@@ -90,7 +91,7 @@ function SeverityBlock({ c }) {
   );
 }
 
-function ComplaintModal({ complaintId, base, isFM, onClose, onChanged }) {
+function ComplaintModal({ complaintId, onClose, onChanged }) {
   const [complaint, setComplaint] = useState(null);
   const [assignees, setAssignees] = useState([]);
   const [mode, setMode] = useState(null);
@@ -137,7 +138,7 @@ function ComplaintModal({ complaintId, base, isFM, onClose, onChanged }) {
     finally { setBusy(false); }
   };
 
-  const canReview = isFM && complaint?.status === "submitted";
+  const canReview = complaint?.status === "submitted";
 
   return (
     <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
@@ -195,12 +196,15 @@ function ComplaintModal({ complaintId, base, isFM, onClose, onChanged }) {
               <div className="mt-5 p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{complaint.inspection.title}</p>
+                    <p className="text-sm font-medium text-slate-900 dark:text-white truncate">
+                      {complaint.inspection.reference && <span className="font-mono text-slate-500 dark:text-slate-400 mr-1.5">{complaint.inspection.reference}</span>}
+                      {complaint.inspection.title}
+                    </p>
                     <p className="text-xs text-slate-400">
                       Inspection {complaint.inspection.status} · {complaint.inspection.inspector_name || "Unknown inspector"} · {complaint.inspection.photo_count ?? 0} photos · {complaint.inspection.finding_count ?? 0} findings
                     </p>
                   </div>
-                  <Link to={`${base}/complaints/${complaint.id}/review`} className={canReview ? "btn-primary text-xs" : "btn-secondary text-xs"}>
+                  <Link to={`/complaints/${complaint.id}/review`} className={canReview ? "btn-primary text-xs" : "btn-secondary text-xs"}>
                     {canReview ? <><ShieldAlert size={13}/> Review and set severity</> : <><Eye size={13}/> View inspection</>}
                   </Link>
                 </div>
@@ -210,7 +214,7 @@ function ComplaintModal({ complaintId, base, isFM, onClose, onChanged }) {
                       <FileText size={13} className="shrink-0"/><span className="truncate">{complaint.report.title}</span>
                       <span className={complaint.report.status === "published" ? "badge-green" : "badge-gray"}>{complaint.report.status}</span>
                     </p>
-                    <Link to={`${base}/reports/${complaint.report.id}`} className="btn-secondary text-xs"><FileText size={13}/> View report</Link>
+                    <Link to={`/reports/${complaint.report.id}`} state={{ from: "/complaints" }} className="btn-secondary text-xs"><FileText size={13}/> View report</Link>
                   </div>
                 )}
               </div>
@@ -266,13 +270,11 @@ function ComplaintModal({ complaintId, base, isFM, onClose, onChanged }) {
   );
 }
 
-export default function Complaints() {
-  const { user } = useAuth();
-  const location = useLocation();
-  const base = location.pathname.startsWith("/admin") ? "/admin" : "/inspector";
-  const isFM = user?.role === "facility_manager";
+export default function Complaints({ mode = "inbox" }) {
+  const review = mode === "review";
+  const tabs = review ? REVIEW_TABS : TABS;
   const [complaints, setComplaints] = useState([]);
-  const [tab, setTab] = useState(isFM ? "submitted" : "pending");
+  const [tab, setTab] = useState(review ? "submitted" : "pending");
   const [loading, setLoading] = useState(true);
   const [openId, setOpenId] = useState(null);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -293,20 +295,29 @@ export default function Complaints() {
     setOpenId(null);
     setSearchParams({}, { replace: true });
   }, [setSearchParams]);
-  const counts = TABS.reduce((acc, t) => ({ ...acc, [t.key]: complaints.filter(c => c.status === t.key).length }), {});
-  const overdueCounts = TABS.reduce((acc, t) => ({ ...acc, [t.key]: complaints.filter(c => c.status === t.key && c.is_overdue).length }), {});
+  const counts = tabs.reduce((acc, t) => ({ ...acc, [t.key]: complaints.filter(c => c.status === t.key).length }), {});
+  const overdueCounts = tabs.reduce((acc, t) => ({ ...acc, [t.key]: complaints.filter(c => c.status === t.key && c.is_overdue).length }), {});
   const visible = complaints.filter(c => c.status === tab);
   if (OPEN_STATUSES.includes(tab)) visible.sort(sortOpen);
 
   return (
     <div className="space-y-6">
       <div className="page-header">
-        <h1 className="page-title flex items-center gap-2"><Inbox size={22}/> Complaints</h1>
-        <p className="page-subtitle">Defects reported by the public. Nothing here counts in statistics or reports until it is converted into an inspection.</p>
+        {review ? (
+          <>
+            <h1 className="page-title flex items-center gap-2"><ShieldAlert size={22}/> Severity Review</h1>
+            <p className="page-subtitle">Complaint inspections submitted by inspectors. Set one overall severity for each and it is sent to the admins.</p>
+          </>
+        ) : (
+          <>
+            <h1 className="page-title flex items-center gap-2"><Inbox size={22}/> Complaints</h1>
+            <p className="page-subtitle">Defects reported by the public. Nothing here counts in statistics or reports until it is converted into an inspection.</p>
+          </>
+        )}
       </div>
 
       <div className="flex gap-2 flex-wrap">
-        {TABS.map(t => (
+        {tabs.map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}
             className={clsx("px-4 py-2 rounded-xl text-sm font-medium transition-colors inline-flex items-center gap-1.5", tab === t.key ? "bg-primary-600 text-white" : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800")}>
             {t.label} <span className="opacity-75">({counts[t.key] || 0})</span>
@@ -343,7 +354,7 @@ export default function Complaints() {
                 </div>
                 <div className="flex flex-col items-end gap-1 shrink-0 text-xs text-slate-400">
                   {c.inspection?.inspector_name && <span className="flex items-center gap-1"><User size={12}/> {c.inspection.inspector_name}</span>}
-                  {c.status === "submitted" && isFM && <span className="text-violet-600 dark:text-violet-400 font-medium">Ready for your review</span>}
+                  {c.status === "submitted" && <span className="text-violet-600 dark:text-violet-400 font-medium">Ready for your review</span>}
                   <span className="flex items-center gap-1"><ImageIcon size={12}/> {c.photo_count}</span>
                 </div>
               </button>
@@ -356,8 +367,6 @@ export default function Complaints() {
         {openId && (
           <ComplaintModal
             complaintId={openId}
-            base={base}
-            isFM={isFM}
             onClose={closeModal}
             onChanged={() => { closeModal(); load(); }}
           />

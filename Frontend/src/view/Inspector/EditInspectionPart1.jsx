@@ -60,6 +60,7 @@ export default function EditInspectionPart1() {
 
   const [locked, setLocked] = useState(false);
   const [complaint, setComplaint] = useState(null);
+  const [reference, setReference] = useState(null);
 
   useEffect(() => {
     Promise.all([
@@ -69,6 +70,7 @@ export default function EditInspectionPart1() {
     ]).then(([insp, bldg, comp]) => {
       const d = insp.data;
       setComplaint(comp.data);
+      setReference(d.reference);
       const openComplaintDraft = !!comp.data && d.status === "draft";
       if (d.created_at && !openComplaintDraft) {
         const age = (Date.now() - new Date(d.created_at).getTime()) / (1000 * 60 * 60 * 24);
@@ -125,7 +127,7 @@ export default function EditInspectionPart1() {
         setTab("photos");
       } else {
         toast.success("Inspection updated");
-        navigate("/inspector/inspections");
+        navigate("/inspections");
       }
     } catch { toast.error("Update failed"); }
     finally { setLoading(false); }
@@ -143,7 +145,7 @@ export default function EditInspectionPart1() {
         <button onClick={() => navigate(-1)} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-primary-600 mb-3 transition-colors">
           <ArrowLeft size={15}/> Back
         </button>
-        <h1 className="page-title">Edit Inspection</h1>
+        <h1 className="page-title">Edit Inspection {reference && <span className="font-mono text-base text-slate-400 ml-1">{reference}</span>}</h1>
       </div>
 
       {complaint && <ComplaintBox complaint={complaint}/>}
@@ -294,7 +296,7 @@ export default function EditInspectionPart1() {
                 try {
                   await api.post(`/inspections/${id}/submit`);
                   toast.success("Inspection submitted!");
-                  navigate("/inspector/inspections");
+                  navigate("/inspections");
                 } catch { toast.error("Submit failed"); }
               }}
               className="btn-primary flex items-center gap-2"

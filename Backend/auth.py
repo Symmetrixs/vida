@@ -4,7 +4,7 @@ import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime, timedelta, timezone
-from typing import Literal, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
@@ -28,19 +28,12 @@ EMAIL_FROM = os.getenv("EMAIL_FROM", "")
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
-APPROVAL_ROLES = ("admin", "facility_manager")
+ROLES = ("inspector", "maintenance", "facility_manager", "admin")
+MANAGER_ROLES = ("admin", "facility_manager")
 
 
 def get_supabase() -> Client:
     return create_client(SUPABASE_URL, SUPABASE_KEY)
-
-
-class UserRegister(BaseModel):
-    name: str
-    email: EmailStr
-    password: str
-    role: Literal["inspector", "facility_manager", "admin"] = "inspector"
-    employee_id: Optional[str] = None
 
 
 class UserLogin(BaseModel):
@@ -77,6 +70,32 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def load_roles(supabase: Client, user_id: str) -> list:
+    rows = supabase.table("user_roles").select("role").eq("user_id", user_id).execute().data or []
+    held = {r["role"] for r in rows}
+    return [r for r in ROLES if r in held]
+
+
+def has_any_role(user: Optional[dict], *roles: str) -> bool:
+    return bool(user) and bool(set(user.get("roles") or []) & set(roles))
+
+
+def users_with_roles(supabase: Client, roles, columns: str = "id") -> list:
+    rows = supabase.table("user_roles").select("user_id").in_("role", list(roles)).execute().data or []
+    ids = sorted({r["user_id"] for r in rows})
+    if not ids:
+        return []
+    return supabase.table("users").select(columns).in_("id", ids).eq("is_active", True).order("name").execute().data or []
+
+
+def active_user_with_role(supabase: Client, user_id: str, role: str, columns: str = "id, name") -> Optional[dict]:
+    held = supabase.table("user_roles").select("user_id").eq("user_id", user_id).eq("role", role).execute().data
+    if not held:
+        return None
+    rows = supabase.table("users").select(columns).eq("id", user_id).eq("is_active", True).execute().data
+    return rows[0] if rows else None
 
 
 def send_reset_email(to_email: str, reset_token: str) -> None:
@@ -157,106 +176,53 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id: str = payload.get("sub")
-        if user_id is None:
+        if user_id is None or payload.get("purpose"):
             raise credentials_exception
     except JWTError:
         raise credentials_exception
 
     supabase = get_supabase()
-    result = supabase.table("users").select("*").eq("id", user_id).single().execute()
-    if not result.data:
+    rows = supabase.table("users").select("*").eq("id", user_id).execute().data
+    if not rows or not rows[0].get("is_active", True):
         raise credentials_exception
-    return result.data
+    user = rows[0]
+    user.pop("password_hash", None)
+    user["roles"] = load_roles(supabase, user_id)
+    return user
 
 
-@router.post("/register", status_code=status.HTTP_201_CREATED)
-def register(user: UserRegister):
-    supabase = get_supabase()
-    existing = supabase.table("users").select("id, is_active, role").eq("email", user.email).execute()
-    if existing.data:
-        ex = existing.data[0]
-        if ex.get("is_active") is False:
-            raise HTTPException(status_code=400, detail="An account with this email was previously deactivated. Contact your administrator to reactivate it.")
-        raise HTTPException(status_code=400, detail="Email already registered. Please sign in instead.")
-
-    if user.employee_id:
-        emp_check = supabase.table("users").select("id").eq("employee_id", user.employee_id).execute()
-        if emp_check.data:
-            raise HTTPException(status_code=400, detail="This Matric No. / Employee ID is already registered to another account.")
-
-    hashed         = hash_password(user.password)
-    needs_approval = user.role in APPROVAL_ROLES
-    now            = datetime.now(timezone.utc).isoformat()
-
-    new_user = {
-        "name":          user.name,
-        "email":         user.email,
-        "password_hash": hashed,
-        "role":          user.role,
-        "is_active":     True,
-        "is_approved":   None if needs_approval else True,
-        "created_at":    now,
-    }
-    if user.employee_id:
-        new_user["employee_id"] = user.employee_id
-
-    result = supabase.table("users").insert(new_user).execute()
-    if not result.data:
-        raise HTTPException(status_code=500, detail="Registration failed")
-
-    created = result.data[0]
-
-    if needs_approval:
-        return {
-            "status":  "pending",
-            "message": "Your account is pending approval from an existing administrator.",
-            "user": {
-                "id":    created["id"],
-                "name":  created["name"],
-                "email": created["email"],
-                "role":  created["role"],
-            },
-        }
-
-    token = create_access_token({"sub": str(created["id"]), "role": created["role"]})
-    return Token(access_token=token, token_type="bearer", user={
-        "id":          created["id"],
-        "name":        created["name"],
-        "email":       created["email"],
-        "role":        created["role"],
-        "employee_id": created.get("employee_id"),
-        "avatar_url":  created.get("avatar_url"),
-        "created_at":  created.get("created_at"),
-    })
+def require_roles(*roles: str):
+    def dependency(current_user: dict = Depends(get_current_user)) -> dict:
+        if not has_any_role(current_user, *roles):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorised")
+        return current_user
+    return dependency
 
 
 @router.post("/login", response_model=Token)
 def login(form_data: UserLogin):
     supabase = get_supabase()
-    result = supabase.table("users").select("*").eq("email", form_data.email).single().execute()
-    if not result.data:
+    rows = supabase.table("users").select("*").eq("email", form_data.email).execute().data
+    if not rows:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    user = result.data
+    user = rows[0]
     if not verify_password(form_data.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     if not user.get("is_active", True):
         raise HTTPException(status_code=403, detail="Account deactivated")
 
-    if user.get("role") in APPROVAL_ROLES:
-        approved = user.get("is_approved")
-        if approved is False:
-            raise HTTPException(status_code=403, detail="Account rejected")
-        if approved is None:
-            raise HTTPException(status_code=403, detail="Account pending approval")
+    roles = load_roles(supabase, user["id"])
+    if not roles:
+        raise HTTPException(status_code=403, detail="No roles assigned. Contact your administrator.")
 
-    token = create_access_token({"sub": str(user["id"]), "role": user["role"]})
+    token = create_access_token({"sub": str(user["id"]), "roles": roles})
     return Token(access_token=token, token_type="bearer", user={
         "id":          user["id"],
         "name":        user["name"],
         "email":       user["email"],
-        "role":        user["role"],
+        "roles":       roles,
         "employee_id": user.get("employee_id"),
         "avatar_url":  user.get("avatar_url"),
         "department":  user.get("department"),
@@ -267,7 +233,6 @@ def login(form_data: UserLogin):
 
 @router.get("/me")
 async def me(current_user: dict = Depends(get_current_user)):
-    current_user.pop("password_hash", None)
     return current_user
 
 

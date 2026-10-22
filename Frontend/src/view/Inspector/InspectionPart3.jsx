@@ -35,7 +35,7 @@ export default function InspectionPart3() {
       : [];
 
   useEffect(() => {
-    if (!inspectionId) { navigate("/inspector/inspections"); return; }
+    if (!inspectionId) { navigate("/inspections"); return; }
     api.get(`/inspections/${inspectionId}`)
       .then(r => setInspection(r.data))
       .catch(() => {});
@@ -64,7 +64,7 @@ export default function InspectionPart3() {
       sessionStorage.removeItem(`vida_aiResults_${inspectionId}`);
       sessionStorage.removeItem(`vida_annot_${inspectionId}`);
       toast.success("Inspection submitted successfully!");
-      navigate("/inspector/inspections");
+      navigate("/inspections");
     } catch { toast.error("Submission failed"); }
     finally { setSubmitting(false); }
   };

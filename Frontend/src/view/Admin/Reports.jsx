@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  FileText, Search, Eye, Trash2, Download, ChevronDown, X,
+  FileText, Search, Eye, Download, ChevronDown, X,
   Filter, ArrowUpDown, Building2, User, Calendar, FileDown, File, Loader2,
 } from "lucide-react";
 import api from "../../api/axios.js";
@@ -20,6 +21,7 @@ const SORT_OPTS = [
 ];
 
 export default function AdminReports() {
+  const navigate = useNavigate();
   const [reports,    setReports]    = useState([]);
   const [loading,    setLoading]    = useState(true);
   const [search,     setSearch]     = useState("");
@@ -30,17 +32,11 @@ export default function AdminReports() {
 
   const fetchReports = () => {
     setLoading(true);
-    api.get("/reports/").then(r => setReports(r.data))
+    api.get("/reports/all").then(r => setReports(r.data))
       .catch(() => toast.error("Failed to load reports"))
       .finally(() => setLoading(false));
   };
   useEffect(() => { fetchReports(); }, []);
-
-  const handleDelete = async (id) => {
-    if (!confirm("Delete this report? This cannot be undone.")) return;
-    try { await api.delete(`/reports/${id}`); toast.success("Report deleted"); fetchReports(); }
-    catch { toast.error("Delete failed"); }
-  };
 
   const handleExport = async (reportId, format) => {
     setExporting(reportId + "_" + format);
@@ -84,7 +80,7 @@ export default function AdminReports() {
     <div className="space-y-6">
       <div className="page-header flex items-start justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="page-title flex items-center gap-2"><FileText size={22}/> Reports</h1>
+          <h1 className="page-title flex items-center gap-2"><FileText size={22}/> All Reports</h1>
           <p className="page-subtitle">View, filter, and export all inspection reports</p>
         </div>
         <span className="badge-blue text-sm px-3 py-1.5 self-start">{filtered.length} report{filtered.length !== 1 ? "s" : ""}</span>
@@ -152,6 +148,7 @@ export default function AdminReports() {
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">{r.title}</p>
                         <p className="text-xs text-slate-400 flex items-center gap-1">
+                          {r.inspection_reference && <span className="font-mono mr-1">{r.inspection_reference}</span>}
                           <Calendar size={10}/> {new Date(r.created_at).toLocaleDateString("en-MY")}
                         </p>
                       </div>
@@ -194,8 +191,8 @@ export default function AdminReports() {
                           )}
                         </AnimatePresence>
                       </div>
-                      <button onClick={() => handleDelete(r.id)} className="btn-ghost p-1.5 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20" title="Delete">
-                        <Trash2 size={13}/>
+                      <button onClick={() => navigate(`/reports/${r.id}`, { state: { from: "/all-reports" } })} className="btn-ghost p-1.5 rounded-lg" title="View">
+                        <Eye size={13}/>
                       </button>
                     </div>
                   </motion.div>

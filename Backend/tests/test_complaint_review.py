@@ -5,9 +5,9 @@ from auth import get_current_user
 from fakes import FakeSupabase
 from main import app
 
-INSPECTOR = {"id": "owner", "role": "inspector", "name": "Owner"}
-ADMIN = {"id": "admin1", "role": "admin", "name": "Admin"}
-FM = {"id": "fm1", "role": "facility_manager", "name": "Farah Manager"}
+INSPECTOR = {"id": "owner", "roles": ["inspector"], "name": "Owner"}
+ADMIN = {"id": "admin1", "roles": ["admin"], "name": "Admin"}
+FM = {"id": "fm1", "roles": ["facility_manager"], "name": "Farah Manager"}
 
 COMPLAINT = {
     "id": "c1", "ref_no": 21, "floor": "Level 1", "location_note": "Corridor", "description": "Crack on wall",
@@ -42,7 +42,7 @@ def _review_db(status="submitted"):
     })
 
 
-def test_review_page_data_for_managers_only(client, login, monkeypatch):
+def test_review_page_is_for_managers_and_read_only_for_admins(client, login, monkeypatch):
     monkeypatch.setattr(complaint, "get_supabase", lambda: _review_db())
 
     login(FM)
@@ -102,15 +102,12 @@ def test_review_only_while_submitted(client, login, monkeypatch):
     assert client.post("/complaints/c1/review", json={"severity": "low"}).status_code == 404
 
 
-def test_review_sets_severity_and_notifies_approved_admins(client, login, monkeypatch):
+def test_review_sets_severity_and_notifies_active_admins(client, login, monkeypatch):
     reviewed_row = {"id": "c1", "ref_no": 21, "status": "reviewed", "severity": "high", "severity_note": "Close the corridor until repaired."}
     db = FakeSupabase(responses={
         ("complaints", "update"): [reviewed_row],
-        ("users", "select"): [
-            {"id": "admin1", "role": "admin", "is_approved": True},
-            {"id": "admin2", "role": "admin", "is_approved": True},
-            {"id": "admin-pending", "role": "admin", "is_approved": None},
-        ],
+        ("user_roles", "select"): [{"user_id": "admin1"}, {"user_id": "admin2"}],
+        ("users", "select"): [{"id": "admin1"}, {"id": "admin2"}],
     })
     monkeypatch.setattr(complaint, "get_supabase", lambda: db)
     login(FM)
@@ -128,7 +125,7 @@ def test_review_sets_severity_and_notifies_approved_admins(client, login, monkey
     assert {n["user_id"] for n in notes} == {"admin1", "admin2"}
     note = notes[0]
     assert note["title"] == "Inspection reviewed" and note["type"] == "warning"
-    assert note["link"] == "/admin/complaints?open=c1"
+    assert note["link"] == "/complaints/c1/review"
     assert "Farah Manager" in note["message"] and "VIDA-C-0021" in note["message"]
     assert "severity HIGH" in note["message"] and "Close the corridor until repaired." in note["message"]
 
@@ -136,7 +133,8 @@ def test_review_sets_severity_and_notifies_approved_admins(client, login, monkey
 def test_review_note_is_optional_and_low_severity_is_info(client, login, monkeypatch):
     db = FakeSupabase(responses={
         ("complaints", "update"): [{"id": "c1", "ref_no": 21, "status": "reviewed", "severity": "low", "severity_note": None}],
-        ("users", "select"): [{"id": "admin1", "role": "admin", "is_approved": True}],
+        ("user_roles", "select"): [{"user_id": "admin1"}],
+        ("users", "select"): [{"id": "admin1"}],
     })
     monkeypatch.setattr(complaint, "get_supabase", lambda: db)
     login(FM)

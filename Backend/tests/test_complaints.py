@@ -6,7 +6,6 @@ from fastapi.routing import APIRoute
 from PIL import Image
 
 import ai_detection
-import auth
 import public
 from auth import get_current_user
 from fakes import COMPLAINT_ID, FakeSupabase
@@ -68,7 +67,7 @@ def test_public_routes_never_require_login_or_run_ai():
 
 
 def test_complaint_inbox_rejects_inspectors(client):
-    app.dependency_overrides[get_current_user] = lambda: {"id": "u1", "role": "inspector"}
+    app.dependency_overrides[get_current_user] = lambda: {"id": "u1", "roles": ["inspector"]}
     try:
         assert client.get("/complaints/").status_code == 403
         assert client.post(f"/complaints/{COMPLAINT_ID}/reject", json={"reason": "Duplicate report"}).status_code == 403
@@ -148,31 +147,3 @@ def test_submit_stores_pending_complaint_without_ai(client, fake_db, monkeypatch
     assert len(fake_db.inserted["complaint_photos"]) == 2
     assert {bucket for bucket, _ in fake_db.uploads} == {"vida-complaints"}
     assert all(path.startswith(COMPLAINT_ID + "/") for _, path in fake_db.uploads)
-
-
-def test_register_rejects_unknown_role(client):
-    response = client.post("/auth/register", json={"name": "X", "email": "x@example.com", "password": "secret123", "role": "superuser"})
-    assert response.status_code == 422
-
-
-def test_facility_manager_signup_needs_approval(client, monkeypatch):
-    db = FakeSupabase(responses={
-        ("users", "select"): [],
-        ("users", "insert"): [{"id": "u1", "name": "FM", "email": "fm@example.com", "role": "facility_manager"}],
-    })
-    monkeypatch.setattr(auth, "get_supabase", lambda: db)
-    response = client.post("/auth/register", json={"name": "FM", "email": "fm@example.com", "password": "secret123", "role": "facility_manager"})
-    assert response.status_code == 201
-    assert response.json()["status"] == "pending"
-    assert "access_token" not in response.json()
-    assert db.inserted["users"][0]["is_approved"] is None
-
-    pending_user = {
-        "id": "u1", "name": "FM", "email": "fm@example.com", "role": "facility_manager",
-        "password_hash": auth.hash_password("secret123"), "is_active": True, "is_approved": None,
-    }
-    login_db = FakeSupabase(responses={("users", "select"): pending_user})
-    monkeypatch.setattr(auth, "get_supabase", lambda: login_db)
-    response = client.post("/auth/login", json={"email": "fm@example.com", "password": "secret123"})
-    assert response.status_code == 403
-    assert response.json()["detail"] == "Account pending approval"

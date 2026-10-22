@@ -1,6 +1,8 @@
 import { useAuth } from "../../context/AuthContext.jsx";
 import { motion } from "framer-motion";
-import { Settings as SettingsIcon, Sun, Moon, User } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Settings as SettingsIcon, Sun, Moon, User, Lock, ArrowRight } from "lucide-react";
+import { roleBadge, roleLabel } from "../../utils/roles.js";
 
 export default function Settings() {
   const { user, theme, toggleTheme } = useAuth();
@@ -23,8 +25,10 @@ export default function Settings() {
             <span className="text-sm font-medium text-slate-900 dark:text-white">{user?.email}</span>
           </div>
           <div className="flex justify-between items-center py-2">
-            <span className="text-sm text-slate-600 dark:text-slate-400">Role</span>
-            <span className="badge-blue capitalize">{user?.role?.replace("_", " ")}</span>
+            <span className="text-sm text-slate-600 dark:text-slate-400">Roles</span>
+            <span className="flex flex-wrap justify-end gap-1.5">
+              {(user?.roles || []).map(r => <span key={r} className={roleBadge(r)}>{roleLabel(r)}</span>)}
+            </span>
           </div>
         </div>
       </motion.div>
@@ -41,6 +45,16 @@ export default function Settings() {
             {theme === "dark" ? "Light mode" : "Dark mode"}
           </button>
         </div>
+      </motion.div>
+
+      <motion.div className="card p-6" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+        <h3 className="font-semibold text-slate-800 dark:text-slate-200 mb-1 flex items-center gap-2">
+          <Lock size={16}/> Password & Security
+        </h3>
+        <p className="text-sm text-slate-400 mb-4">Change your password from your Profile page. Roles can only be changed by an admin.</p>
+        <Link to="/profile" className="btn-secondary inline-flex items-center gap-2 text-sm">
+          Go to Profile <ArrowRight size={14}/>
+        </Link>
       </motion.div>
     </div>
   );

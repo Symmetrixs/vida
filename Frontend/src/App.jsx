@@ -2,51 +2,56 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "./context/AuthContext.jsx";
 import { AnimatePresence } from "framer-motion";
 
-import Login        from "./view/Auth/Login.jsx";
-import Register     from "./view/Auth/Register.jsx";
+import Login           from "./view/Auth/Login.jsx";
 import ForgotPassword  from "./view/Auth/ForgotPassword.jsx";
 import ResetPassword   from "./view/Auth/ResetPassword.jsx";
 import ReportDefect    from "./view/Public/ReportDefect.jsx";
 
-import AdminLayout  from "./view/Admin/AdminLayout.jsx";
-import Dashboard    from "./view/Admin/Dashboard.jsx";
-import Users        from "./view/Admin/Users.jsx";
-import Vessels      from "./view/Admin/Vessels.jsx";
-import Reports      from "./view/Admin/Reports.jsx";
-import Analytics    from "./view/Admin/Analytics.jsx";
-import AdminNotifications from "./view/Admin/Notifications.jsx";
-import Settings     from "./view/Admin/Settings.jsx";
-import AdminProfile from "./view/Admin/Profile.jsx";
-import Complaints   from "./view/Admin/Complaints.jsx";
-import ComplaintReview from "./view/Admin/ComplaintReview.jsx";
+import AppLayout       from "./components/AppLayout.jsx";
+import LoadingScreen   from "./components/LoadingScreen.jsx";
 
-import InspectorLayout   from "./view/Inspector/InspectorLayout.jsx";
-import Home              from "./view/Inspector/Home.jsx";
-import VesselManagement  from "./view/Inspector/VesselManagement.jsx";
+import Home            from "./view/Common/Home.jsx";
+import Notifications   from "./view/Common/Notifications.jsx";
+import Profile         from "./view/Common/Profile.jsx";
+import Settings        from "./view/Common/Settings.jsx";
+
 import InspectionManagement from "./view/Inspector/InspectionManagement.jsx";
-import InspectionPart1   from "./view/Inspector/InspectionPart1.jsx";
-import InspectionPart2   from "./view/Inspector/InspectionPart2.jsx";
-import InspectionPart3   from "./view/Inspector/InspectionPart3.jsx";
-import InspectionPhoto   from "./view/Inspector/InspectionPhoto.jsx";
-import EditInspectionPart1 from "./view/Inspector/EditInspectionPart1.jsx";
-import ReportManagement  from "./view/Inspector/ReportManagement.jsx";
-import ReportView        from "./view/Inspector/ReportView.jsx";
-import StatisticAnalysis from "./view/Inspector/StatisticAnalysis.jsx";
-import TeamSharedReport  from "./view/Inspector/TeamSharedReport.jsx";
-import Profile           from "./view/Inspector/Profile.jsx";
-import InspectorSettings from "./view/Inspector/InspectorSettings.jsx";
-import Menu              from "./view/Inspector/Menu.jsx";
-import LoadingScreen     from "./components/LoadingScreen.jsx";
+import InspectionPart1      from "./view/Inspector/InspectionPart1.jsx";
+import InspectionPart2      from "./view/Inspector/InspectionPart2.jsx";
+import InspectionPart3      from "./view/Inspector/InspectionPart3.jsx";
+import InspectionPhoto      from "./view/Inspector/InspectionPhoto.jsx";
+import EditInspectionPart1  from "./view/Inspector/EditInspectionPart1.jsx";
+import AssignedInspections  from "./view/Inspector/AssignedInspections.jsx";
+import ReportManagement     from "./view/Inspector/ReportManagement.jsx";
+import ReportView           from "./view/Inspector/ReportView.jsx";
+import TeamSharedReport     from "./view/Inspector/TeamSharedReport.jsx";
 
-function ProtectedRoute({ children, allowedRoles }) {
+import Complaints      from "./view/Admin/Complaints.jsx";
+import ComplaintReview from "./view/Admin/ComplaintReview.jsx";
+import AllReports      from "./view/Admin/Reports.jsx";
+import Analytics       from "./view/Admin/Analytics.jsx";
+import StaffAccounts   from "./view/Admin/StaffAccounts.jsx";
+import Buildings       from "./view/Admin/Vessels.jsx";
+
+const INSPECTOR = ["inspector"];
+const FACILITY_MANAGER = ["facility_manager"];
+const ADMIN = ["admin"];
+const MANAGERS = ["facility_manager", "admin"];
+
+function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen />;
   if (!user) return <Navigate to="/login" replace />;
-  if (allowedRoles && !allowedRoles.includes(user.role)) {
-    return <Navigate to={user.role === "admin" ? "/admin" : "/inspector"} replace />;
-  }
   return children;
 }
+
+function RequireRole({ roles, children }) {
+  const { hasRole } = useAuth();
+  if (!hasRole(...roles)) return <Navigate to="/" replace />;
+  return children;
+}
+
+const only = (roles, element) => <RequireRole roles={roles}>{element}</RequireRole>;
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -55,82 +60,38 @@ export default function App() {
   return (
     <AnimatePresence mode="wait">
       <Routes>
-        <Route path="/login"          element={<Login />} />
-        <Route path="/register"       element={<Register />} />
+        <Route path="/login"           element={user ? <Navigate to="/" replace /> : <Login />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password"  element={<ResetPassword />} />
         <Route path="/report-defect"   element={<ReportDefect />} />
 
-        <Route
-          path="/admin"
-          element={
-            <ProtectedRoute allowedRoles={["admin", "facility_manager"]}>
-              <AdminLayout />
-            </ProtectedRoute>
-          }
-        >
-          <Route index element={<Dashboard />} />
-          <Route path="users"         element={<Users />} />
-          <Route path="vessels"       element={<Vessels />} />
-          <Route path="complaints"    element={<Complaints />} />
-          <Route path="complaints/:id/review" element={<ComplaintReview />} />
-          <Route path="reports"       element={<Reports />} />
-          <Route path="reports/:id"   element={<ReportView />} />
-          <Route path="analytics"     element={<Analytics />} />
-          <Route path="notifications" element={<AdminNotifications />} />
-          <Route path="settings"      element={<Settings />} />
-          <Route path="profile"       element={<AdminProfile />} />
+        <Route path="/" element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
+          <Route index                         element={<Home />} />
+          <Route path="notifications"          element={<Notifications />} />
+          <Route path="profile"                element={<Profile />} />
+          <Route path="settings"               element={<Settings />} />
+
+          <Route path="inspections"            element={only(INSPECTOR, <InspectionManagement />)} />
+          <Route path="inspections/new/part1"  element={only(INSPECTOR, <InspectionPart1 />)} />
+          <Route path="inspections/new/part2"  element={only(INSPECTOR, <InspectionPart2 />)} />
+          <Route path="inspections/new/part3"  element={only(INSPECTOR, <InspectionPart3 />)} />
+          <Route path="inspections/:id/photo"  element={only(INSPECTOR, <InspectionPhoto />)} />
+          <Route path="inspections/:id/edit"   element={only(INSPECTOR, <EditInspectionPart1 />)} />
+          <Route path="assigned"               element={only(INSPECTOR, <AssignedInspections />)} />
+          <Route path="reports"                element={only(INSPECTOR, <ReportManagement />)} />
+          <Route path="reports/:id"            element={<ReportView />} />
+          <Route path="shared"                 element={only(INSPECTOR, <TeamSharedReport />)} />
+
+          <Route path="complaints"             element={only(FACILITY_MANAGER, <Complaints mode="inbox" />)} />
+          <Route path="severity-review"        element={only(FACILITY_MANAGER, <Complaints mode="review" />)} />
+          <Route path="complaints/:id/review"  element={only(MANAGERS, <ComplaintReview />)} />
+          <Route path="all-reports"            element={only(MANAGERS, <AllReports />)} />
+
+          <Route path="statistics"             element={only(ADMIN, <Analytics />)} />
+          <Route path="staff"                  element={only(ADMIN, <StaffAccounts />)} />
+          <Route path="buildings"              element={only(ADMIN, <Buildings />)} />
         </Route>
 
-        <Route
-          path="/inspector"
-          element={
-            <ProtectedRoute allowedRoles={["inspector", "facility_manager"]}>
-              <InspectorLayout />
-            </ProtectedRoute>
-          }
-        >
-          <Route index element={<Home />} />
-          <Route path="menu"                    element={<Menu />} />
-          <Route path="vessels"                 element={<VesselManagement />} />
-          <Route path="inspections"             element={<InspectionManagement />} />
-          <Route path="inspections/new/part1"   element={<InspectionPart1 />} />
-          <Route path="inspections/new/part2"   element={<InspectionPart2 />} />
-          <Route path="inspections/new/part3"   element={<InspectionPart3 />} />
-          <Route path="inspections/:id/photo"   element={<InspectionPhoto />} />
-          <Route path="inspections/:id/edit"    element={<EditInspectionPart1 />} />
-          <Route path="reports"                 element={<ReportManagement />} />
-          <Route path="reports/:id"             element={<ReportView />} />
-          <Route path="statistics"              element={<StatisticAnalysis />} />
-          <Route path="team-reports"            element={<TeamSharedReport />} />
-          <Route
-            path="complaints"
-            element={
-              <ProtectedRoute allowedRoles={["facility_manager"]}>
-                <Complaints />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="complaints/:id/review"
-            element={
-              <ProtectedRoute allowedRoles={["facility_manager"]}>
-                <ComplaintReview />
-              </ProtectedRoute>
-            }
-          />
-          <Route path="profile"                 element={<Profile />} />
-          <Route path="settings"               element={<InspectorSettings />} />
-        </Route>
-
-        <Route
-          path="/"
-          element={
-            user
-              ? <Navigate to={user.role === "admin" ? "/admin" : "/inspector"} replace />
-              : <Navigate to="/login" replace />
-          }
-        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </AnimatePresence>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   FileText, ArrowLeft, Send, Lock,
@@ -330,7 +330,9 @@ function GroupRow({ group, photos, findings, rowData, onChange, locked, onAIFill
 export default function ReportView() {
   const { id }      = useParams();
   const navigate    = useNavigate();
-  const { user }    = useAuth();
+  const { user, hasRole } = useAuth();
+  const location    = useLocation();
+  const backTo      = location.state?.from || (hasRole("inspector") ? "/reports" : "/all-reports");
 
   const [report,     setReport]     = useState(null);
   const [inspection, setInspection] = useState(null);
@@ -348,7 +350,8 @@ export default function ReportView() {
   const [header, setHeader] = useState({ title: "", summary: "", recommendations: "" });
   const [rows,   setRows]   = useState({});
 
-  const locked = report ? (report.status === "published" || (isLocked(report.created_at) && user?.role !== "admin")) : false;
+  const isMine = report?.created_by === user?.id;
+  const locked = report ? (!isMine || report.status === "published" || isLocked(report.created_at)) : false;
 
   useEffect(() => {
     setLoading(true);
@@ -368,7 +371,7 @@ export default function ReportView() {
         try { Object.assign(existingRows, JSON.parse(rep.row_data)); } catch {}
       }
       setRows(existingRows);
-    }).catch(() => { toast.error("Failed to load report"); navigate("..", { relative: "path" }); })
+    }).catch(() => { toast.error("Failed to load report"); navigate(backTo); })
       .finally(() => setLoading(false));
   }, [id]);
 
@@ -471,7 +474,7 @@ export default function ReportView() {
         toast.error("Export failed: " + e.message);
       } finally { setExporting(null); }
     }
-    navigate("..", { relative: "path" });
+    navigate(backTo);
   };
 
   if (loading) return (
@@ -485,15 +488,16 @@ export default function ReportView() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="page-header">
-        <button onClick={() => navigate("..", { relative: "path" })} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-primary-600 mb-3 transition-colors">
-          <ArrowLeft size={15}/> Back to Reports
+        <button onClick={() => navigate(backTo)} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-primary-600 mb-3 transition-colors">
+          <ArrowLeft size={15}/> Back
         </button>
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
             <h1 className="page-title">{report.title}</h1>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               <span className={report.status === "published" ? "badge-green" : "badge-gray"}>{report.status}</span>
-              {locked && (
+              {!isMine && creator?.name && <span className="text-xs text-slate-400">by {creator.name}</span>}
+              {locked && isMine && (
                 <span className="flex items-center gap-1 text-xs text-amber-500 font-medium">
                   <Lock size={11}/> Locked — reports cannot be edited after 3 days
                 </span>
@@ -510,9 +514,11 @@ export default function ReportView() {
         >
           <Lock size={16} className="text-amber-600 shrink-0"/>
           <p className="text-sm text-amber-700 dark:text-amber-400">
-            {report?.status === "published"
-              ? "This report has been published and is now read-only. Download a copy using the Export button below."
-              : "This report was created more than 3 days ago and is now locked. Contact an administrator if edits are required."}
+            {!isMine
+              ? "This report belongs to another inspector and is read-only for you."
+              : report?.status === "published"
+                ? "This report has been published and is now read-only. Download a copy using the Export button below."
+                : "This report was created more than 3 days ago and is now locked."}
           </p>
         </motion.div>
       )}

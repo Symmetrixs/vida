@@ -1,7 +1,10 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bell, Plus, Trash2, Users, User, ChevronDown, CheckCircle, Info, AlertTriangle, XCircle } from "lucide-react";
 import api from "../../api/axios.js";
+import { useAuth } from "../../context/AuthContext.jsx";
+import { rolesText } from "../../utils/roles.js";
 import toast from "react-hot-toast";
 
 const TYPE_OPTS = [
@@ -14,11 +17,16 @@ const TYPE_OPTS = [
 const TARGET_OPTS = [
   { value: "all",              label: "Everyone",           sub: "All active users" },
   { value: "inspector",        label: "All Inspectors",     sub: "Inspectors only" },
+  { value: "maintenance",      label: "All Maintenance",    sub: "Maintenance staff only" },
   { value: "facility_manager", label: "All Facility Managers", sub: "Facility managers only" },
+  { value: "admin",            label: "All Admins",         sub: "Admins only" },
   { value: "specific",         label: "Specific User",      sub: "Choose one user" },
 ];
 
-export default function AdminNotifications() {
+export default function Notifications() {
+  const { hasRole } = useAuth();
+  const navigate = useNavigate();
+  const canSend = hasRole("admin");
   const [notifs,   setNotifs]   = useState([]);
   const [users,    setUsers]    = useState([]);
   const [loading,  setLoading]  = useState(true);
@@ -33,11 +41,24 @@ export default function AdminNotifications() {
   });
 
   useEffect(() => {
-    Promise.all([api.get("/notifications/"), api.get("/admin/users")])
-      .then(([n, u]) => { setNotifs(n.data); setUsers(u.data.filter(u => u.role !== "admin")); })
+    api.get("/notifications/")
+      .then(r => setNotifs(r.data))
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (!canSend) return;
+    api.get("/admin/users").then(r => setUsers(r.data.filter(u => u.is_active))).catch(() => {});
+  }, [canSend]);
+
+  const openNotification = (n) => {
+    if (!n.is_read) {
+      api.patch(`/notifications/${n.id}/read`).catch(() => {});
+      setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, is_read: true } : x));
+    }
+    if (n.link && n.link.startsWith("/") && !n.link.startsWith("//")) navigate(n.link);
+  };
 
   const handleSend = async () => {
     if (!form.title.trim() || !form.message.trim()) { toast.error("Title and message are required"); return; }
@@ -77,15 +98,17 @@ export default function AdminNotifications() {
       <div className="page-header flex items-center justify-between">
         <div>
           <h1 className="page-title flex items-center gap-2"><Bell size={22}/> Notifications</h1>
-          <p className="page-subtitle">Send system notifications to users or roles</p>
+          <p className="page-subtitle">{canSend ? "Your notifications, and system messages you send to staff" : "Updates about your work"}</p>
         </div>
-        <button onClick={() => setShowForm(s => !s)} className="btn-primary flex items-center gap-2">
-          <Plus size={16}/> Send Notification
-        </button>
+        {canSend && (
+          <button onClick={() => setShowForm(s => !s)} className="btn-primary flex items-center gap-2">
+            <Plus size={16}/> Send Notification
+          </button>
+        )}
       </div>
 
       <AnimatePresence>
-        {showForm && (
+        {canSend && showForm && (
           <motion.div
             className="card p-5 space-y-4"
             initial={{ opacity: 0, y: -10, height: 0 }} animate={{ opacity: 1, y: 0, height: "auto" }} exit={{ opacity: 0, y: -10, height: 0 }}
@@ -97,7 +120,7 @@ export default function AdminNotifications() {
 
             <div>
               <label className="label">Send To *</label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {TARGET_OPTS.map(t => (
                   <button
                     key={t.value}
@@ -122,7 +145,7 @@ export default function AdminNotifications() {
                   <option value="">Select user…</option>
                   {users.map(u => (
                     <option key={u.id} value={u.id}>
-                      {u.name} — {u.role?.replace("_", " ")} ({u.email})
+                      {u.name} — {rolesText(u.roles)} ({u.email})
                     </option>
                   ))}
                 </select>
@@ -163,7 +186,7 @@ export default function AdminNotifications() {
               <p className="text-xs text-slate-400">
                 {form.target === "all" ? "Will be sent to all active users" :
                  form.target === "specific" ? (form.user_id ? "Sending to 1 user" : "No user selected") :
-                 "Will be sent to all " + form.target.replace("_", " ") + "s"}
+                 "Will be sent to everyone holding the " + form.target.replace("_", " ") + " role"}
               </p>
               <div className="flex gap-2">
                 <button onClick={() => setShowForm(false)} className="btn-secondary">Cancel</button>
@@ -178,7 +201,7 @@ export default function AdminNotifications() {
 
       <div className="card overflow-hidden">
         <div className="px-5 py-3.5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Recent System Notifications</h3>
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200">My Notifications</h3>
           <span className="text-xs text-slate-400">{notifs.length} total</span>
         </div>
         {loading ? (
@@ -196,8 +219,9 @@ export default function AdminNotifications() {
               return (
                 <motion.div
                   key={n.id}
-                  className="flex items-start gap-4 px-5 py-3.5 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
+                  className={"flex items-start gap-4 px-5 py-3.5 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors " + (n.link ? "cursor-pointer " : "") + (!n.is_read ? "bg-blue-50/60 dark:bg-blue-900/10" : "")}
                   initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.03 }}
+                  onClick={() => openNotification(n)}
                 >
                   <div className={"w-7 h-7 rounded-lg flex items-center justify-center shrink-0 " + t.color}>
                     <Icon size={13} className="text-white"/>
@@ -210,7 +234,7 @@ export default function AdminNotifications() {
                       {n.is_read ? " · Read" : " · Unread"}
                     </p>
                   </div>
-                  <button onClick={() => handleDelete(n.id)} className="btn-ghost p-1.5 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 shrink-0">
+                  <button onClick={(e) => { e.stopPropagation(); handleDelete(n.id); }} className="btn-ghost p-1.5 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 shrink-0">
                     <Trash2 size={13}/>
                   </button>
                 </motion.div>

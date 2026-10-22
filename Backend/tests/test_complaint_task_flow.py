@@ -6,10 +6,10 @@ from auth import get_current_user
 from fakes import FakeSupabase
 from main import app
 
-OWNER = {"id": "owner", "role": "inspector", "name": "Owner Inspector"}
-OTHER = {"id": "other", "role": "inspector", "name": "Other"}
-ADMIN = {"id": "admin1", "role": "admin", "name": "Admin"}
-FM = {"id": "fm1", "role": "facility_manager", "name": "Manager"}
+OWNER = {"id": "owner", "roles": ["inspector"], "name": "Owner Inspector"}
+OTHER = {"id": "other", "roles": ["inspector"], "name": "Other"}
+ADMIN = {"id": "admin1", "roles": ["admin"], "name": "Admin"}
+FM = {"id": "fm1", "roles": ["facility_manager"], "name": "Manager"}
 
 COMPLAINT_ROW = {
     "id": "c1", "ref_no": 12, "floor": "Level 2", "location_note": "Lab corridor",
@@ -60,22 +60,17 @@ def test_complaint_box_endpoint_permissions(client, login, monkeypatch):
     assert client.get("/inspections/missing/complaint").status_code == 404
 
 
-def test_submit_notifies_approved_facility_managers_to_review(monkeypatch):
-    users = [
-        {"id": "fm1", "role": "facility_manager", "is_approved": True},
-        {"id": "fm2", "role": "facility_manager", "is_approved": True},
-        {"id": "fm-pending", "role": "facility_manager", "is_approved": None},
-        {"id": "fm-rejected", "role": "facility_manager", "is_approved": False},
-    ]
+def test_submit_notifies_active_facility_managers_to_review(monkeypatch):
     db = FakeSupabase(responses={
         ("complaints", "select"): [{"id": "c1", "ref_no": 12}],
-        ("users", "select"): users,
+        ("user_roles", "select"): [{"user_id": "fm1"}, {"user_id": "fm2"}, {"user_id": "fm-inactive"}],
+        ("users", "select"): [{"id": "fm1"}, {"id": "fm2"}],
     })
     monkeypatch.setattr(complaint, "get_supabase", lambda: db)
     assert complaint.notify_complaint_submitted("insp1", OWNER) == 2
     notes = {n["user_id"]: n for n in db.inserted["notifications"]}
     assert set(notes) == {"fm1", "fm2"}
-    assert all(n["link"] == "/inspector/complaints/c1/review" for n in notes.values())
+    assert all(n["link"] == "/complaints/c1/review" for n in notes.values())
     message = notes["fm1"]["message"]
     assert "Owner Inspector" in message and "VIDA-C-0012" in message and "set the severity" in message
     assert "progress" not in message and "report" not in message and "resolved" not in message

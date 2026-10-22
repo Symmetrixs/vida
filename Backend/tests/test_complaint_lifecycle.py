@@ -15,10 +15,10 @@ from auth import get_current_user
 from fakes import FakeSupabase
 from main import app
 
-OWNER = {"id": "owner", "role": "inspector", "name": "Owner"}
-OTHER = {"id": "other", "role": "inspector", "name": "Other"}
-ADMIN = {"id": "admin1", "role": "admin", "name": "Admin"}
-FM = {"id": "fm1", "role": "facility_manager", "name": "Manager"}
+OWNER = {"id": "owner", "roles": ["inspector"], "name": "Owner"}
+OTHER = {"id": "other", "roles": ["inspector"], "name": "Other"}
+ADMIN = {"id": "admin1", "roles": ["admin"], "name": "Admin"}
+FM = {"id": "fm1", "roles": ["facility_manager"], "name": "Manager"}
 
 
 @pytest.fixture
@@ -144,14 +144,14 @@ def test_release_sends_complaint_back_to_pending():
 
 def test_convert_refuses_past_due_date(client, login, monkeypatch):
     monkeypatch.setattr(complaint, "get_supabase", lambda: FakeSupabase())
-    login(ADMIN)
+    login(FM)
     yesterday = (complaint.today_myt() - timedelta(days=1)).isoformat()
     response = client.post("/complaints/c1/convert", json={"inspector_id": "owner", "due_date": yesterday})
     assert response.status_code == 400
     assert response.json()["detail"] == "Due date cannot be in the past"
 
 
-def test_only_owner_or_manager_can_submit_or_create_report(client, login, monkeypatch):
+def test_only_the_owning_inspector_can_submit_or_create_report(client, login, monkeypatch):
     calls = []
     monkeypatch.setattr(inspection, "sync_complaint", lambda *a, **k: calls.append("inspection"))
     monkeypatch.setattr(inspection, "notify_complaint_submitted", lambda *a, **k: 0)
@@ -172,9 +172,11 @@ def test_only_owner_or_manager_can_submit_or_create_report(client, login, monkey
     assert client.post("/inspections/insp1/submit").status_code == 200
     assert client.post("/reports/", json={"inspection_id": "insp1", "title": "Report"}).status_code == 201
 
-    login(FM)
-    assert client.post("/inspections/insp1/submit").status_code == 200
-    assert calls == ["inspection", "inspection"]
+    for user in (FM, ADMIN):
+        login(user)
+        assert client.post("/inspections/insp1/submit").status_code == 403
+        assert client.post("/reports/", json={"inspection_id": "insp1", "title": "Report"}).status_code == 403
+    assert calls == ["inspection"]
 
 
 def test_inspection_endpoints_update_the_complaint_and_reports_do_not(client, login, monkeypatch):
@@ -203,24 +205,25 @@ def test_inspection_endpoints_update_the_complaint_and_reports_do_not(client, lo
     now = datetime.now(timezone.utc).isoformat()
     report_row = {"id": "r1", "created_by": "owner", "created_at": now, "inspection_id": "insp1", "status": "draft"}
 
-    use(inspection, {("inspections", "select"): {"id": "insp1", "inspector_id": "owner"}})
+    owned = {("inspections", "select"): [{"id": "insp1", "inspector_id": "owner", "status": "draft"}]}
+    use(inspection, owned)
     assert client.get("/inspections/insp1").status_code == 200
-    use(inspection, {("inspections", "select"): {"inspector_id": "owner", "status": "draft"}, ("inspections", "update"): [{"id": "insp1"}]})
+    use(inspection, {**owned, ("inspections", "update"): [{"id": "insp1"}]})
     assert client.put("/inspections/insp1", json={"remarks": "checked"}).status_code == 200
-    use(inspection, {("inspections", "select"): {"inspector_id": "owner"}})
+    use(inspection, owned)
     assert client.delete("/inspections/insp1").status_code == 200
 
-    use(photo, {})
+    use(photo, owned)
     assert client.get("/photos/insp1/list").status_code == 200
     buffer = io.BytesIO()
     Image.new("RGB", (32, 32)).save(buffer, format="JPEG")
     upload = client.post("/photos/upload", data={"inspection_id": "insp1"}, files={"file": ("a.jpg", buffer.getvalue(), "image/jpeg")})
     assert upload.status_code == 201
 
-    use(finding, {})
+    use(finding, owned)
     assert client.post("/findings/", json={"inspection_id": "insp1", "defect_type": "crack", "severity": "high"}).status_code == 201
 
-    use(group, {})
+    use(group, owned)
     assert client.post("/groups/insp1/save", json={"groups": []}).status_code == 200
 
     use(report, {("inspections", "select"): [{"id": "insp1", "status": "draft", "inspector_id": "owner"}], ("reports", "select"): report_row, ("reports", "update"): [report_row]})

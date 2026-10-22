@@ -4,12 +4,17 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from supabase import create_client, Client
-from auth import get_current_user
+from auth import MANAGER_ROLES, get_current_user, has_any_role, require_roles, users_with_roles
+from inspection import owns_inspection
+from public import format_inspection_reference
 
 router = APIRouter()
 
 LOCK_DAYS = 3
-MANAGER_ROLES = ("admin", "facility_manager")
+LIST_COLUMNS = "*, inspections(ref_no, title, inspection_date, building_id, inspector_id, buildings(name, code)), users!created_by(name)"
+
+require_inspector = require_roles("inspector")
+require_manager = require_roles(*MANAGER_ROLES)
 
 
 def get_supabase() -> Client:
@@ -25,9 +30,22 @@ def _is_locked(created_at_str: str) -> bool:
         return False
 
 
-def _assert_can_edit(report: dict, current_user: dict):
-    if current_user["role"] == "admin":
+def _shape(row: dict) -> dict:
+    row["locked"] = _is_locked(row.get("created_at", ""))
+    inspection = row.get("inspections") or {}
+    row["inspection_reference"] = format_inspection_reference(inspection["ref_no"]) if inspection.get("ref_no") else None
+    return row
+
+
+def _assert_can_view(supabase: Client, report: dict, current_user: dict):
+    if report.get("created_by") == current_user["id"] or has_any_role(current_user, *MANAGER_ROLES):
         return
+    shared = supabase.table("shared_reports").select("id").eq("report_id", report["id"]).eq("shared_to_user_id", current_user["id"]).execute().data
+    if not shared:
+        raise HTTPException(status_code=403, detail="Not authorised")
+
+
+def _assert_can_edit(report: dict, current_user: dict):
     if report.get("created_by") != current_user["id"]:
         raise HTTPException(status_code=403, detail="Not authorised to edit this report")
     if _is_locked(report.get("created_at", "")):
@@ -57,24 +75,29 @@ class ShareReportBody(BaseModel):
 
 
 @router.get("/")
-def list_reports(current_user: dict = Depends(get_current_user)):
+def list_reports(current_user: dict = Depends(require_inspector)):
     supabase = get_supabase()
-    query = (
+    rows = (
         supabase.table("reports")
-        .select("*, inspections(title, inspection_date, building_id, inspector_id, buildings(name, code)), users!created_by(name)")
+        .select(LIST_COLUMNS)
+        .eq("created_by", current_user["id"])
         .order("created_at", desc=True)
+        .execute()
+        .data
+        or []
     )
-    if current_user["role"] not in ("admin", "facility_manager"):
-        query = query.eq("created_by", current_user["id"])
-    result = query.execute()
-    rows = result.data or []
-    for r in rows:
-        r["locked"] = _is_locked(r.get("created_at", ""))
-    return rows
+    return [_shape(r) for r in rows]
+
+
+@router.get("/all")
+def list_all_reports(current_user: dict = Depends(require_manager)):
+    supabase = get_supabase()
+    rows = supabase.table("reports").select(LIST_COLUMNS).order("created_at", desc=True).execute().data or []
+    return [_shape(r) for r in rows]
 
 
 @router.get("/shared-with-me")
-def shared_with_me(current_user: dict = Depends(get_current_user)):
+def shared_with_me(current_user: dict = Depends(require_inspector)):
     supabase = get_supabase()
     result = supabase.table("shared_reports").select(
         "*, reports(id, title, status, created_at, inspections(title, buildings(name))), users!shared_by(name, avatar_url)"
@@ -82,20 +105,23 @@ def shared_with_me(current_user: dict = Depends(get_current_user)):
     return result.data or []
 
 
+def _shareable(supabase: Client, current_user: dict) -> list:
+    users = users_with_roles(supabase, ("inspector",), "id, name, email, avatar_url, employee_id")
+    return [u for u in users if u["id"] != current_user["id"]]
+
+
 @router.get("/shareable-users")
-def get_shareable_users(current_user: dict = Depends(get_current_user)):
-    supabase = get_supabase()
-    result = supabase.table("users").select("id, name, email, role, avatar_url, employee_id").neq("role", "admin").neq("id", current_user["id"]).eq("is_active", True).order("name").execute()
-    return result.data or []
+def get_shareable_users(current_user: dict = Depends(require_inspector)):
+    return _shareable(get_supabase(), current_user)
 
 
 @router.post("/", status_code=201)
-def create_report(body: ReportCreate, current_user: dict = Depends(get_current_user)):
+def create_report(body: ReportCreate, current_user: dict = Depends(require_inspector)):
     supabase = get_supabase()
     insp = supabase.table("inspections").select("id, status, inspector_id").eq("id", body.inspection_id).execute()
     if not insp.data:
         raise HTTPException(status_code=404, detail="Inspection not found")
-    if current_user["role"] not in MANAGER_ROLES and insp.data[0]["inspector_id"] != current_user["id"]:
+    if not owns_inspection(insp.data[0], current_user):
         raise HTTPException(status_code=403, detail="Not authorised")
     data = body.model_dump()
     data["created_by"] = current_user["id"]
@@ -108,13 +134,19 @@ def create_report(body: ReportCreate, current_user: dict = Depends(get_current_u
 
 
 @router.post("/share")
-def share_report(body: ShareReportBody, current_user: dict = Depends(get_current_user)):
+def share_report(body: ShareReportBody, current_user: dict = Depends(require_inspector)):
     supabase = get_supabase()
-    report = supabase.table("reports").select("id, status").eq("id", body.report_id).single().execute().data
-    if not report:
+    found = supabase.table("reports").select("id, status, created_by").eq("id", body.report_id).execute().data
+    if not found:
         raise HTTPException(status_code=404, detail="Report not found")
+    report = found[0]
+    if report.get("created_by") != current_user["id"]:
+        raise HTTPException(status_code=403, detail="Only the report's author can share it")
     if report.get("status") != "published":
         raise HTTPException(status_code=400, detail="Only published reports can be shared")
+    allowed = {u["id"] for u in _shareable(supabase, current_user)}
+    if not body.user_ids or any(uid not in allowed for uid in body.user_ids):
+        raise HTTPException(status_code=400, detail="Reports can only be shared with active inspectors")
     now = datetime.now(timezone.utc).isoformat()
     rows = []
     for uid in body.user_ids:
@@ -155,12 +187,9 @@ def get_report(report_id: str, current_user: dict = Depends(get_current_user)):
     if not result.data:
         raise HTTPException(status_code=404, detail="Report not found")
     report = result.data
-    if current_user["role"] == "inspector" and report.get("created_by") != current_user["id"]:
-        shared = supabase.table("shared_reports").select("id").eq("report_id", report_id).eq("shared_to_user_id", current_user["id"]).execute().data
-        if not shared:
-            raise HTTPException(status_code=403, detail="Not authorised")
-    report["locked"] = _is_locked(report.get("created_at", ""))
-    return report
+    _assert_can_view(supabase, report, current_user)
+    report["is_mine"] = report.get("created_by") == current_user["id"]
+    return _shape(report)
 
 
 @router.put("/{report_id}")
@@ -184,7 +213,7 @@ def delete_report(report_id: str, current_user: dict = Depends(get_current_user)
     existing = supabase.table("reports").select("created_by").eq("id", report_id).single().execute()
     if not existing.data:
         raise HTTPException(status_code=404, detail="Report not found")
-    if current_user["role"] not in ("admin",) and existing.data.get("created_by") != current_user["id"]:
+    if existing.data.get("created_by") != current_user["id"]:
         raise HTTPException(status_code=403, detail="Not authorised")
     supabase.table("shared_reports").delete().eq("report_id", report_id).execute()
     supabase.table("reports").delete().eq("id", report_id).execute()
@@ -212,10 +241,7 @@ def export_report_data(report_id: str, current_user: dict = Depends(get_current_
     if not report_res.data:
         raise HTTPException(status_code=404, detail="Report not found")
     report = report_res.data
-    if current_user["role"] == "inspector" and report.get("created_by") != current_user["id"]:
-        shared = supabase.table("shared_reports").select("id").eq("report_id", report_id).eq("shared_to_user_id", current_user["id"]).execute().data
-        if not shared:
-            raise HTTPException(status_code=403, detail="Not authorised")
+    _assert_can_view(supabase, report, current_user)
     inspection = supabase.table("inspections").select("*, buildings(*)").eq("id", report["inspection_id"]).single().execute().data or {}
     findings   = supabase.table("findings").select("*").eq("inspection_id", report["inspection_id"]).execute().data or []
     photos     = supabase.table("photos").select("*").eq("inspection_id", report["inspection_id"]).order("created_at").execute().data or []

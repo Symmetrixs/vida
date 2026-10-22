@@ -73,7 +73,7 @@ export default function InspectionPart1() {
         inspId   = r.data.id;
         toast.success("Inspection created");
       }
-      navigate("/inspector/inspections/new/part2", { state: { inspectionId: inspId } });
+      navigate("/inspections/new/part2", { state: { inspectionId: inspId } });
     } catch (err) { toast.error(err.response?.data?.detail || "Failed"); }
     finally { setLoading(false); }
   };

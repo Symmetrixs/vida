@@ -4,12 +4,8 @@ import { User, Save, Camera, Lock, Eye, EyeOff, BadgeCheck, Loader2, Phone, Buil
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
 import { useAuth } from "../../context/AuthContext.jsx";
+import { roleBadge, roleLabel, rolesText } from "../../utils/roles.js";
 
-const ROLE_COLOR = {
-  inspector:        "badge-blue",
-  facility_manager: "badge-amber",
-  admin:            "badge-red",
-};
 
 export default function Profile() {
   const { user, updateUser } = useAuth();
@@ -113,9 +109,9 @@ export default function Profile() {
                 <IdCard size={11}/> {user.employee_id}
               </p>
             )}
-            <span className={"mt-1.5 inline-block capitalize " + (ROLE_COLOR[user?.role] || "badge-gray")}>
-              {user?.role?.replace("_", " ")}
-            </span>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {(user?.roles || []).map(r => <span key={r} className={roleBadge(r)}>{roleLabel(r)}</span>)}
+            </div>
           </div>
         </div>
 
@@ -200,7 +196,7 @@ export default function Profile() {
           </div>
           <div className="space-y-1 text-xs text-slate-500 dark:text-slate-400">
             <p><span className="font-semibold text-slate-700 dark:text-slate-300">Email:</span> {user?.email}</p>
-            <p><span className="font-semibold text-slate-700 dark:text-slate-300">Role:</span> {user?.role?.replace("_", " ")}</p>
+            <p><span className="font-semibold text-slate-700 dark:text-slate-300">Roles:</span> {rolesText(user?.roles)}</p>
             <p><span className="font-semibold text-slate-700 dark:text-slate-300">Account created:</span> {user?.created_at ? new Date(user.created_at).toLocaleDateString("en-MY", { year: "numeric", month: "long", day: "numeric" }) : "—"}</p>
           </div>
         </div>

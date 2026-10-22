@@ -36,14 +36,6 @@ export function AuthProvider({ children }) {
     return userData;
   }, []);
 
-  const register = useCallback(async (name, email, password, role = "inspector") => {
-    const res = await api.post("/auth/register", { name, email, password, role });
-    const { access_token, user: userData } = res.data;
-    localStorage.setItem("vida-token", access_token);
-    setUser(userData);
-    return userData;
-  }, []);
-
   const logout = useCallback(async () => {
     try { await api.post("/auth/logout"); } catch (_) {}
     localStorage.removeItem("vida-token");
@@ -54,8 +46,10 @@ export function AuthProvider({ children }) {
     setUser((prev) => ({ ...prev, ...updates }));
   }, []);
 
+  const hasRole = useCallback((...roles) => roles.some((r) => user?.roles?.includes(r)), [user]);
+
   return (
-    <AuthContext.Provider value={{ user, loading, theme, toggleTheme, login, register, logout, updateUser }}>
+    <AuthContext.Provider value={{ user, loading, theme, toggleTheme, login, logout, updateUser, hasRole }}>
       {children}
     </AuthContext.Provider>
   );

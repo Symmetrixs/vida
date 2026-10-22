@@ -4,16 +4,55 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from supabase import create_client, Client
-from auth import get_current_user
+from auth import MANAGER_ROLES, get_current_user, has_any_role, require_roles
 from complaint import complaint_snapshot, mark_started, notify_complaint_submitted, release_complaint, sync_complaint
+from public import format_inspection_reference, format_reference
 
 router = APIRouter()
 
-MANAGER_ROLES = ("admin", "facility_manager")
+require_inspector = require_roles("inspector")
 
 
 def get_supabase() -> Client:
     return create_client(os.getenv("SUPABASE_URL", ""), os.getenv("SUPABASE_SERVICE_KEY", ""))
+
+
+def owns_inspection(inspection: Optional[dict], user: dict) -> bool:
+    return bool(inspection) and has_any_role(user, "inspector") and inspection.get("inspector_id") == user["id"]
+
+
+def can_view_inspection(inspection: Optional[dict], user: dict) -> bool:
+    return bool(inspection) and (owns_inspection(inspection, user) or has_any_role(user, *MANAGER_ROLES))
+
+
+def load_inspection(supabase: Client, inspection_id: str) -> dict:
+    rows = supabase.table("inspections").select("id, inspector_id, status").eq("id", inspection_id).execute().data
+    if not rows:
+        raise HTTPException(status_code=404, detail="Inspection not found")
+    return rows[0]
+
+
+def assert_owner(supabase: Client, inspection_id: str, user: dict) -> dict:
+    inspection = load_inspection(supabase, inspection_id)
+    if not owns_inspection(inspection, user):
+        raise HTTPException(status_code=403, detail="Not authorised")
+    return inspection
+
+
+def assert_viewer(supabase: Client, inspection_id: str, user: dict) -> dict:
+    inspection = load_inspection(supabase, inspection_id)
+    if not can_view_inspection(inspection, user):
+        raise HTTPException(status_code=403, detail="Not authorised")
+    return inspection
+
+
+def with_references(row: dict) -> dict:
+    row["reference"] = format_inspection_reference(row["ref_no"]) if row.get("ref_no") else None
+    linked = row.pop("complaints", None) or []
+    if isinstance(linked, dict):
+        linked = [linked]
+    row["complaint_reference"] = format_reference(linked[0]["ref_no"]) if linked else None
+    return row
 
 
 class InspectionCreate(BaseModel):
@@ -38,21 +77,22 @@ class InspectionUpdate(BaseModel):
 
 
 @router.get("/")
-def list_inspections(current_user: dict = Depends(get_current_user)):
+def list_inspections(current_user: dict = Depends(require_inspector)):
     supabase = get_supabase()
-    role     = current_user.get("role")
     me_id    = current_user["id"]
 
-    query = supabase.table("inspections").select("*, buildings(name, code), users!inspector_id(name, avatar_url)").order("created_at", desc=True)
-
-    if role == "inspector":
-        query = query.eq("inspector_id", me_id)
-
-    result = query.execute()
-    rows   = result.data or []
+    result = (
+        supabase.table("inspections")
+        .select("*, buildings(name, code), users!inspector_id(name, avatar_url), complaints(ref_no)")
+        .eq("inspector_id", me_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    rows = result.data or []
 
     for row in rows:
-        row["is_mine"]     = row.get("inspector_id") == me_id
+        with_references(row)
+        row["is_mine"]     = True
         inspector_data     = row.get("users") or {}
         row["inspector"]   = {"name": inspector_data.get("name", "Unknown"), "avatar_url": inspector_data.get("avatar_url")}
 
@@ -62,18 +102,19 @@ def list_inspections(current_user: dict = Depends(get_current_user)):
 @router.get("/{inspection_id}")
 def get_inspection(inspection_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    result = supabase.table("inspections").select("*, buildings(*)").eq("id", inspection_id).single().execute()
-    if not result.data:
+    rows = supabase.table("inspections").select("*, buildings(*), complaints(ref_no)").eq("id", inspection_id).execute().data
+    if not rows:
         raise HTTPException(status_code=404, detail="Inspection not found")
-    insp = result.data
-    if current_user["role"] == "inspector" and insp.get("inspector_id") != current_user["id"]:
+    insp = rows[0]
+    if not can_view_inspection(insp, current_user):
         raise HTTPException(status_code=403, detail="Not authorised")
     mark_started(inspection_id, current_user, insp.get("inspector_id"))
-    return insp
+    insp["is_mine"] = owns_inspection(insp, current_user)
+    return with_references(insp)
 
 
 @router.post("/", status_code=201)
-def create_inspection(body: InspectionCreate, current_user: dict = Depends(get_current_user)):
+def create_inspection(body: InspectionCreate, current_user: dict = Depends(require_inspector)):
     supabase = get_supabase()
     data = body.model_dump()
     data["inspector_id"] = current_user["id"]
@@ -82,17 +123,13 @@ def create_inspection(body: InspectionCreate, current_user: dict = Depends(get_c
     result = supabase.table("inspections").insert(data).execute()
     if not result.data:
         raise HTTPException(status_code=500, detail="Failed to create inspection")
-    return result.data[0]
+    return with_references(result.data[0])
 
 
 @router.put("/{inspection_id}")
 def update_inspection(inspection_id: str, body: InspectionUpdate, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    existing = supabase.table("inspections").select("inspector_id, status").eq("id", inspection_id).single().execute()
-    if not existing.data:
-        raise HTTPException(status_code=404, detail="Inspection not found")
-    if current_user["role"] == "inspector" and existing.data["inspector_id"] != current_user["id"]:
-        raise HTTPException(status_code=403, detail="Not authorised")
+    assert_owner(supabase, inspection_id, current_user)
 
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -104,11 +141,7 @@ def update_inspection(inspection_id: str, body: InspectionUpdate, current_user: 
 @router.delete("/{inspection_id}")
 def delete_inspection(inspection_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    existing = supabase.table("inspections").select("inspector_id").eq("id", inspection_id).single().execute()
-    if not existing.data:
-        raise HTTPException(status_code=404, detail="Inspection not found")
-    if current_user["role"] == "inspector" and existing.data["inspector_id"] != current_user["id"]:
-        raise HTTPException(status_code=403, detail="Not authorised")
+    assert_owner(supabase, inspection_id, current_user)
 
     release_complaint(supabase, inspection_id)
 
@@ -144,17 +177,13 @@ def delete_inspection(inspection_id: str, current_user: dict = Depends(get_curre
 @router.post("/{inspection_id}/submit")
 def submit_inspection(inspection_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    existing = supabase.table("inspections").select("inspector_id, status").eq("id", inspection_id).execute().data
-    if not existing:
-        raise HTTPException(status_code=404, detail="Inspection not found")
-    if current_user["role"] not in MANAGER_ROLES and existing[0]["inspector_id"] != current_user["id"]:
-        raise HTTPException(status_code=403, detail="Not authorised")
+    existing = assert_owner(supabase, inspection_id, current_user)
     result = supabase.table("inspections").update({
         "status": "submitted",
         "submitted_at": datetime.now(timezone.utc).isoformat(),
     }).eq("id", inspection_id).execute()
     sync_complaint(inspection_id, current_user, started=True)
-    if existing[0].get("status") != "submitted":
+    if existing.get("status") != "submitted":
         notify_complaint_submitted(inspection_id, current_user)
     return result.data[0]
 
@@ -162,16 +191,13 @@ def submit_inspection(inspection_id: str, current_user: dict = Depends(get_curre
 @router.get("/{inspection_id}/complaint")
 def inspection_complaint(inspection_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    rows = supabase.table("inspections").select("inspector_id").eq("id", inspection_id).execute().data
-    if not rows:
-        raise HTTPException(status_code=404, detail="Inspection not found")
-    if current_user["role"] not in MANAGER_ROLES and rows[0]["inspector_id"] != current_user["id"]:
-        raise HTTPException(status_code=403, detail="Not authorised")
+    assert_viewer(supabase, inspection_id, current_user)
     return complaint_snapshot(supabase, inspection_id)
 
 
 @router.get("/{inspection_id}/findings")
 def inspection_findings(inspection_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
+    assert_viewer(supabase, inspection_id, current_user)
     result = supabase.table("findings").select("*").eq("inspection_id", inspection_id).execute()
     return result.data or []

@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ArrowLeft, MapPin, ClipboardList, Image as ImageIcon, ShieldAlert, Send, Inbox, Cloud, Calendar, User } from "lucide-react";
 import api from "../../api/axios.js";
+import { useAuth } from "../../context/AuthContext.jsx";
 import toast from "react-hot-toast";
 import clsx from "clsx";
 import { STATUS_LABEL, STATUS_CLASS, SEVERITIES, SEVERITY_CLASS, SEVERITY_HELP, fmtDateTime, fmtDay } from "../../utils/complaintUi.js";
@@ -34,8 +35,8 @@ function Field({ name, value }) {
 export default function ComplaintReview() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const location = useLocation();
-  const inbox = location.pathname.startsWith("/admin") ? "/admin/complaints" : "/inspector/complaints";
+  const { hasRole } = useAuth();
+  const inbox = hasRole("facility_manager") ? "/severity-review" : "/notifications";
   const [data, setData] = useState(null);
   const [severity, setSeverity] = useState("");
   const [note, setNote] = useState("");
@@ -72,7 +73,7 @@ export default function ComplaintReview() {
     <div className="max-w-5xl mx-auto space-y-6">
       <div className="page-header">
         <button onClick={() => navigate(inbox)} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-primary-600 mb-3 transition-colors">
-          <ArrowLeft size={15}/> Back to Complaints
+          <ArrowLeft size={15}/> Back
         </button>
         <div className="flex items-center gap-2 flex-wrap">
           <h1 className="page-title font-mono">{c.reference}</h1>
@@ -106,6 +107,7 @@ export default function ComplaintReview() {
       {inspection ? (
         <Section icon={ClipboardList} title="Recorded inspection" extra={<span className="text-xs text-slate-400 flex items-center gap-1"><User size={12}/> {inspection.inspector_name || "Unknown inspector"}</span>}>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field name="Inspection number" value={inspection.reference}/>
             <Field name="Title" value={inspection.title}/>
             <Field name="Inspection status" value={inspection.status}/>
             <div className="flex gap-6">

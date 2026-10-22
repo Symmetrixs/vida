@@ -233,14 +233,12 @@ export default function ReportManagement() {
     return list;
   }, [reports, search, statusFilter, sort]);
 
-  const isAdmin = user?.role === "admin";
-  const isFM    = user?.role === "facility_manager";
 
   return (
     <div className="space-y-6">
       <div className="page-header flex items-center justify-between">
         <div>
-          <h1 className="page-title flex items-center gap-2"><FileText size={22}/> Reports</h1>
+          <h1 className="page-title flex items-center gap-2"><FileText size={22}/> My Reports</h1>
           <p className="page-subtitle">Generate and manage inspection reports</p>
         </div>
         <motion.button onClick={() => setShowNew(true)} className="btn-primary" whileTap={{ scale: 0.97 }}>
@@ -303,13 +301,13 @@ export default function ReportManagement() {
         <div className="space-y-3">
           {filtered.map((r, i) => {
             const locked = isLocked(r);
-            const canEdit = !locked || isAdmin;
+            const canEdit = !locked;
             return (
               <motion.div
                 key={r.id}
                 className="card p-4 flex items-center gap-4 cursor-pointer hover:shadow-md transition-shadow"
                 initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}
-                onClick={() => navigate(`/inspector/reports/${r.id}`)}
+                onClick={() => navigate(`/reports/${r.id}`)}
               >
                 <div className="w-11 h-11 rounded-xl bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center shrink-0">
                   <FileText size={18} className="text-primary-600 dark:text-primary-400"/>
@@ -324,12 +322,10 @@ export default function ReportManagement() {
                     )}
                   </div>
                   <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
+                    {r.inspection_reference && <><span className="font-mono">{r.inspection_reference}</span><span>·</span></>}
                     <span className="flex items-center gap-1"><Building2 size={10}/>{r.inspections?.buildings?.name || "—"}</span>
                     <span>·</span>
                     <span className="flex items-center gap-1"><Calendar size={10}/>{new Date(r.created_at).toLocaleDateString("en-MY")}</span>
-                    {(isAdmin || isFM) && r.users?.name && (
-                      <><span>·</span><span className="flex items-center gap-1"><User size={10}/>{r.users.name}</span></>
-                    )}
                   </p>
                   {locked && (
                     <p className="text-[10px] text-amber-500 flex items-center gap-1 mt-0.5">
@@ -340,7 +336,7 @@ export default function ReportManagement() {
                 <span className={STATUS_COLOR[r.status] || "badge-gray"}>{r.status}</span>
                 <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
                   <button
-                    onClick={() => navigate(`/inspector/reports/${r.id}`)}
+                    onClick={() => navigate(`/reports/${r.id}`)}
                     className="btn-ghost p-1.5 rounded-lg" title="View / Edit"
                   >
                     <Eye size={14}/>
@@ -350,7 +346,7 @@ export default function ReportManagement() {
                       <Send size={13}/>
                     </button>
                   )}
-                  {(isAdmin || (!locked && r.created_by === user?.id)) && (
+                  {!locked && r.created_by === user?.id && (
                     <button onClick={(e) => handleDelete(r.id, e)} className="btn-ghost p-1.5 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20" title="Delete">
                       <Trash2 size={13}/>
                     </button>
@@ -367,7 +363,7 @@ export default function ReportManagement() {
           <NewReportModal
             inspections={inspections}
             onClose={() => setShowNew(false)}
-            onCreated={(id) => { setShowNew(false); navigate(`/inspector/reports/${id}`); }}
+            onCreated={(id) => { setShowNew(false); navigate(`/reports/${id}`); }}
           />
         )}
       </AnimatePresence>

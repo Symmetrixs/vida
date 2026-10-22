@@ -18,7 +18,6 @@ export default function InspectionManagement() {
   const [inspections, setInspections] = useState([]);
   const [search,      setSearch]      = useState("");
   const [loading,     setLoading]     = useState(true);
-  const [filter,      setFilter]      = useState("all");
 
   const fetchData = () => {
     setLoading(true);
@@ -34,19 +33,18 @@ export default function InspectionManagement() {
   };
 
   const filtered = inspections.filter(i => {
-    const matchSearch = i.title?.toLowerCase().includes(search.toLowerCase()) || i.buildings?.name?.toLowerCase().includes(search.toLowerCase());
-    if (filter === "mine") return matchSearch && i.is_mine;
-    return matchSearch;
+    const q = search.toLowerCase();
+    return [i.reference, i.complaint_reference, i.title, i.buildings?.name].some(v => v?.toLowerCase().includes(q));
   });
 
   return (
     <div className="space-y-6">
       <div className="page-header flex items-center justify-between">
         <div>
-          <h1 className="page-title flex items-center gap-2"><ClipboardList size={22}/> Inspections</h1>
+          <h1 className="page-title flex items-center gap-2"><ClipboardList size={22}/> My Inspections</h1>
           <p className="page-subtitle">Manage your building inspections</p>
         </div>
-        <Link to="/inspector/inspections/new/part1">
+        <Link to="/inspections/new/part1">
           <motion.button className="btn-primary" whileTap={{ scale: 0.97 }}><Plus size={16}/> New Inspection</motion.button>
         </Link>
       </div>
@@ -54,14 +52,7 @@ export default function InspectionManagement() {
       <div className="flex gap-3">
         <div className="card p-3 flex items-center gap-3 flex-1">
           <Search size={16} className="text-slate-400 shrink-0"/>
-          <input value={search} onChange={e => setSearch(e.target.value)} className="flex-1 bg-transparent outline-none text-sm placeholder-slate-400 text-slate-700 dark:text-slate-300" placeholder="Search by title, building or inspector…"/>
-        </div>
-        <div className="card p-1 flex gap-1">
-          {["all","mine"].map(f => (
-            <button key={f} onClick={() => setFilter(f)} className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${filter === f ? "bg-primary-600 text-white" : "text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"}`}>
-              {f === "all" ? "All Inspections" : "My Inspections"}
-            </button>
-          ))}
+          <input value={search} onChange={e => setSearch(e.target.value)} className="flex-1 bg-transparent outline-none text-sm placeholder-slate-400 text-slate-700 dark:text-slate-300" placeholder="Search by number, title or building…"/>
         </div>
       </div>
 
@@ -71,7 +62,7 @@ export default function InspectionManagement() {
         <div className="card p-12 text-center">
           <ClipboardList size={40} className="text-slate-300 dark:text-slate-700 mx-auto mb-3"/>
           <p className="text-slate-400 mb-4">No inspections found</p>
-          <Link to="/inspector/inspections/new/part1" className="btn-primary inline-flex"><Plus size={15}/> Start one now</Link>
+          <Link to="/inspections/new/part1" className="btn-primary inline-flex"><Plus size={15}/> Start one now</Link>
         </div>
       ) : (
         <div className="space-y-3">
@@ -85,10 +76,11 @@ export default function InspectionManagement() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-semibold text-slate-900 dark:text-white truncate">{insp.title}</p>
-                    {insp.is_mine && <span className="badge-blue text-[10px]">Mine</span>}
+                    {insp.reference && <span className="font-mono text-[11px] text-slate-400 shrink-0">{insp.reference}</span>}
+                    {insp.complaint_reference && <span className="badge-yellow text-[10px] font-mono shrink-0" title="Created from a public complaint">{insp.complaint_reference}</span>}
                   </div>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    {insp.buildings?.name || "No building"} · {new Date(insp.inspection_date || insp.created_at).toLocaleDateString("en-MY")} · <span className="capitalize">{insp.inspector?.name || insp.users?.name || "Unknown"}</span>
+                    {insp.buildings?.name || "No building"} · {new Date(insp.inspection_date || insp.created_at).toLocaleDateString("en-MY")}
                   </p>
                   {locked && (
                     <p className="text-[10px] text-amber-500 flex items-center gap-1 mt-0.5">
@@ -98,11 +90,11 @@ export default function InspectionManagement() {
                 </div>
                 <span className={STATUS_COLOR[insp.status] || "badge-gray"}>{insp.status}</span>
                 <div className="flex items-center gap-1 shrink-0">
-                  <Link to={`/inspector/inspections/${insp.id}/photo`} className="btn-ghost p-1.5 rounded-lg" title="Photos"><Camera size={14}/></Link>
+                  <Link to={`/inspections/${insp.id}/photo`} className="btn-ghost p-1.5 rounded-lg" title="Photos"><Camera size={14}/></Link>
                   {locked ? (
                     <span className="btn-ghost p-1.5 rounded-lg opacity-40 cursor-not-allowed" title="Locked after 3 days"><Lock size={14}/></span>
                   ) : (
-                    <Link to={`/inspector/inspections/${insp.id}/edit`} className="btn-ghost p-1.5 rounded-lg" title="Edit"><Pencil size={14}/></Link>
+                    <Link to={`/inspections/${insp.id}/edit`} className="btn-ghost p-1.5 rounded-lg" title="Edit"><Pencil size={14}/></Link>
                   )}
                   <button onClick={() => handleDelete(insp.id)} className="btn-ghost p-1.5 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20" title="Delete"><Trash2 size={14}/></button>
                 </div>

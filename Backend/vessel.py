@@ -4,7 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from supabase import create_client, Client
-from auth import get_current_user
+from auth import get_current_user, require_roles
+
+require_admin = require_roles("admin")
 
 router = APIRouter()
 
@@ -50,9 +52,7 @@ def get_building(building_id: str, current_user: dict = Depends(get_current_user
 
 
 @router.post("/", status_code=201)
-def create_building(body: BuildingCreate, current_user: dict = Depends(get_current_user)):
-    if current_user.get("role") not in ("admin", "facility_manager"):
-        raise HTTPException(status_code=403, detail="Not authorised")
+def create_building(body: BuildingCreate, current_user: dict = Depends(require_admin)):
     supabase = get_supabase()
     existing = supabase.table("buildings").select("id").eq("code", body.code).execute()
     if existing.data:
@@ -66,9 +66,7 @@ def create_building(body: BuildingCreate, current_user: dict = Depends(get_curre
 
 
 @router.put("/{building_id}")
-def update_building(building_id: str, body: BuildingUpdate, current_user: dict = Depends(get_current_user)):
-    if current_user.get("role") not in ("admin", "facility_manager"):
-        raise HTTPException(status_code=403, detail="Not authorised")
+def update_building(building_id: str, body: BuildingUpdate, current_user: dict = Depends(require_admin)):
     supabase = get_supabase()
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     result = supabase.table("buildings").update(updates).eq("id", building_id).execute()
@@ -78,9 +76,7 @@ def update_building(building_id: str, body: BuildingUpdate, current_user: dict =
 
 
 @router.delete("/{building_id}")
-def delete_building(building_id: str, current_user: dict = Depends(get_current_user)):
-    if current_user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Admin only")
+def delete_building(building_id: str, current_user: dict = Depends(require_admin)):
     supabase = get_supabase()
     linked = supabase.table("inspections").select("id").eq("building_id", building_id).limit(1).execute().data or []
     if linked:

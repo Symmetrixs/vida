@@ -4,8 +4,9 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from supabase import create_client, Client
-from auth import get_current_user
+from auth import MANAGER_ROLES, get_current_user, has_any_role
 from complaint import sync_complaint
+from inspection import assert_owner, assert_viewer
 
 router = APIRouter()
 
@@ -36,12 +37,22 @@ class FindingUpdate(BaseModel):
     notes: Optional[str] = None
 
 
+def _assert_finding_owner(supabase: Client, finding_id: str, user: dict):
+    rows = supabase.table("findings").select("inspection_id").eq("id", finding_id).execute().data
+    if not rows:
+        raise HTTPException(status_code=404, detail="Finding not found")
+    assert_owner(supabase, rows[0]["inspection_id"], user)
+
+
 @router.get("/")
 def list_findings(inspection_id: Optional[str] = None, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
     query = supabase.table("findings").select("*")
     if inspection_id:
+        assert_viewer(supabase, inspection_id, current_user)
         query = query.eq("inspection_id", inspection_id)
+    elif not has_any_role(current_user, *MANAGER_ROLES):
+        raise HTTPException(status_code=403, detail="Not authorised")
     result = query.order("created_at", desc=True).execute()
     return result.data or []
 
@@ -49,10 +60,11 @@ def list_findings(inspection_id: Optional[str] = None, current_user: dict = Depe
 @router.get("/{finding_id}")
 def get_finding(finding_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    result = supabase.table("findings").select("*").eq("id", finding_id).single().execute()
-    if not result.data:
+    rows = supabase.table("findings").select("*").eq("id", finding_id).execute().data
+    if not rows:
         raise HTTPException(status_code=404, detail="Finding not found")
-    return result.data
+    assert_viewer(supabase, rows[0]["inspection_id"], current_user)
+    return rows[0]
 
 
 @router.post("/", status_code=201)
@@ -63,6 +75,7 @@ def create_finding(body: FindingCreate, current_user: dict = Depends(get_current
         raise HTTPException(status_code=400, detail=f"Invalid severity. Must be one of: {SEVERITIES}")
 
     supabase = get_supabase()
+    assert_owner(supabase, body.inspection_id, current_user)
     data = body.model_dump()
     data["created_by"] = current_user["id"]
     data["status"] = "open"
@@ -77,6 +90,7 @@ def create_finding(body: FindingCreate, current_user: dict = Depends(get_current
 @router.put("/{finding_id}")
 def update_finding(finding_id: str, body: FindingUpdate, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
+    _assert_finding_owner(supabase, finding_id, current_user)
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
     result = supabase.table("findings").update(updates).eq("id", finding_id).execute()
@@ -88,6 +102,10 @@ def update_finding(finding_id: str, body: FindingUpdate, current_user: dict = De
 @router.delete("/by-photo/{photo_id}")
 def delete_findings_by_photo(photo_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
+    photos = supabase.table("photos").select("inspection_id").eq("id", photo_id).execute().data
+    if not photos:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    assert_owner(supabase, photos[0]["inspection_id"], current_user)
     finding_ids = [f["id"] for f in (supabase.table("findings").select("id").eq("photo_id", photo_id).execute().data or [])]
     if finding_ids:
         supabase.table("recommendations").delete().in_("finding_id", finding_ids).execute()
@@ -98,6 +116,7 @@ def delete_findings_by_photo(photo_id: str, current_user: dict = Depends(get_cur
 @router.delete("/{finding_id}")
 def delete_finding(finding_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
+    _assert_finding_owner(supabase, finding_id, current_user)
     supabase.table("recommendations").delete().eq("finding_id", finding_id).execute()
     supabase.table("findings").delete().eq("id", finding_id).execute()
     return {"message": "Finding deleted"}
@@ -105,6 +124,8 @@ def delete_finding(finding_id: str, current_user: dict = Depends(get_current_use
 
 @router.get("/stats/summary")
 def findings_summary(current_user: dict = Depends(get_current_user)):
+    if not has_any_role(current_user, *MANAGER_ROLES):
+        raise HTTPException(status_code=403, detail="Not authorised")
     supabase = get_supabase()
     findings = supabase.table("findings").select("defect_type, severity, status").execute().data or []
 

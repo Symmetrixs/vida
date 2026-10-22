@@ -14,7 +14,7 @@ export default function InspectionPart2() {
     if (inspectionId) sessionStorage.setItem("vida_current_inspId", inspectionId);
   }, [inspectionId]);
 
-  if (!inspectionId) { navigate("/inspector/inspections"); return null; }
+  if (!inspectionId) { navigate("/inspections"); return null; }
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -33,13 +33,13 @@ export default function InspectionPart2() {
       <InspectionPhoto inspectionId={inspectionId} embedded onStateChange={setPhotoState}/>
       <div className="flex justify-between pt-2">
         <button
-          onClick={() => navigate("/inspector/inspections/new/part1", { state: { inspectionId } })}
+          onClick={() => navigate("/inspections/new/part1", { state: { inspectionId } })}
           className="btn-secondary"
         >
           <ChevronLeft size={16}/> Back
         </button>
         <button
-          onClick={() => navigate("/inspector/inspections/new/part3", {
+          onClick={() => navigate("/inspections/new/part3", {
             state: { inspectionId, groups: photoState.groups }
           })}
           className="btn-primary"

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from supabase import create_client, Client
 from auth import get_current_user
 from complaint import mark_started, sync_complaint
+from inspection import assert_owner, assert_viewer
 
 router = APIRouter()
 
@@ -34,6 +35,7 @@ async def upload_photo(
         raise HTTPException(status_code=413, detail="File exceeds 10MB limit")
 
     supabase = get_supabase()
+    assert_owner(supabase, inspection_id, current_user)
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "jpg"
     filename = f"{inspection_id}/{uuid.uuid4()}.{ext}"
 
@@ -65,6 +67,7 @@ async def upload_photo(
 @router.get("/{inspection_id}/list")
 def list_photos(inspection_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
+    assert_viewer(supabase, inspection_id, current_user)
     result = (
         supabase.table("photos")
         .select("*")
@@ -79,13 +82,11 @@ def list_photos(inspection_id: str, current_user: dict = Depends(get_current_use
 @router.delete("/{photo_id}")
 def delete_photo(photo_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    result = supabase.table("photos").select("filename, uploaded_by").eq("id", photo_id).single().execute()
-    if not result.data:
+    rows = supabase.table("photos").select("filename, uploaded_by, inspection_id").eq("id", photo_id).execute().data
+    if not rows:
         raise HTTPException(status_code=404, detail="Photo not found")
-    photo = result.data
-
-    if current_user["role"] == "inspector" and photo["uploaded_by"] != current_user["id"]:
-        raise HTTPException(status_code=403, detail="Not authorised")
+    photo = rows[0]
+    assert_owner(supabase, photo["inspection_id"], current_user)
 
     supabase.table("group_photos").delete().eq("photo_id", photo_id).execute()
     supabase.table("findings").delete().eq("photo_id", photo_id).execute()
@@ -101,7 +102,8 @@ def delete_photo(photo_id: str, current_user: dict = Depends(get_current_user)):
 @router.get("/{photo_id}")
 def get_photo(photo_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    result = supabase.table("photos").select("*").eq("id", photo_id).single().execute()
-    if not result.data:
+    rows = supabase.table("photos").select("*").eq("id", photo_id).execute().data
+    if not rows:
         raise HTTPException(status_code=404, detail="Photo not found")
-    return result.data
+    assert_viewer(supabase, rows[0]["inspection_id"], current_user)
+    return rows[0]

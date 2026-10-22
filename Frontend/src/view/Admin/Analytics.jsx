@@ -288,7 +288,7 @@ export default function Analytics() {
                 <label className="label text-xs flex items-center gap-1"><Users size={11}/> Inspector / User</label>
                 <select value={filters.inspector_id} onChange={e => setFilters(f => ({...f, inspector_id: e.target.value}))} className="input text-xs py-1.5">
                   <option value="">All users</option>
-                  {(data?.inspectors || []).map(u => <option key={u.id} value={u.id}>{u.name} ({u.role?.replace("_"," ")})</option>)}
+                  {(data?.inspectors || []).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
                 </select>
               </div>
             </div>

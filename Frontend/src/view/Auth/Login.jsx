@@ -1,27 +1,10 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Eye, EyeOff, LogIn, AlertCircle, Clock, XCircle, Megaphone } from "lucide-react";
+import { Eye, EyeOff, LogIn, AlertCircle, Megaphone } from "lucide-react";
 import { useAuth } from "../../context/AuthContext.jsx";
 import toast from "react-hot-toast";
 import logo from "../../assets/company-logo.png";
-
-const STATUS_SCREENS = {
-  pending: {
-    icon: Clock,
-    iconClass: "text-amber-500",
-    bgClass: "bg-amber-100 dark:bg-amber-900/30",
-    title: "Account Pending Approval",
-    message: "Your account has not been approved yet. Please wait for an existing administrator to review your request.",
-  },
-  rejected: {
-    icon: XCircle,
-    iconClass: "text-red-500",
-    bgClass: "bg-red-100 dark:bg-red-900/30",
-    title: "Account Rejected",
-    message: "Your account request has been rejected. Please contact your system administrator for assistance.",
-  },
-};
 
 export default function Login() {
   const { login } = useAuth();
@@ -30,32 +13,22 @@ export default function Login() {
   const [showPw, setShowPw]   = useState(false);
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState("");
-  const [statusScreen, setStatusScreen] = useState(null);
 
   const handleChange = (e) => {
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
     setError("");
-    setStatusScreen(null);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError("");
-    setStatusScreen(null);
     try {
       const user = await login(form.email, form.password);
       toast.success(`Welcome back, ${user.name}!`);
-      navigate(user.role === "admin" ? "/admin" : "/inspector", { replace: true });
+      navigate("/", { replace: true });
     } catch (err) {
-      const detail = err.response?.data?.detail || "";
-      if (detail === "Account pending approval") {
-        setStatusScreen("pending");
-      } else if (detail === "Account rejected") {
-        setStatusScreen("rejected");
-      } else {
-        setError(detail || "Invalid email or password");
-      }
+      setError(err.response?.data?.detail || "Invalid email or password");
     } finally {
       setLoading(false);
     }
@@ -99,34 +72,6 @@ export default function Login() {
 
         <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-8">
 
-          {statusScreen ? (
-            <motion.div
-              key={statusScreen}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="text-center py-2"
-            >
-              {(() => {
-                const s = STATUS_SCREENS[statusScreen];
-                const Icon = s.icon;
-                return (
-                  <>
-                    <div className={`inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 ${s.bgClass}`}>
-                      <Icon size={32} className={s.iconClass} />
-                    </div>
-                    <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-2">{s.title}</h2>
-                    <p className="text-sm text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">{s.message}</p>
-                    <button
-                      onClick={() => { setStatusScreen(null); setForm({ email: "", password: "" }); }}
-                      className="btn-secondary w-full justify-center"
-                    >
-                      Try a different account
-                    </button>
-                  </>
-                );
-              })()}
-            </motion.div>
-          ) : (
             <>
               <div className="mb-6">
                 <h2 className="text-xl font-bold text-slate-900 dark:text-white">Sign in</h2>
@@ -208,13 +153,9 @@ export default function Login() {
               </form>
 
               <p className="text-center text-sm text-slate-500 dark:text-slate-400 mt-6">
-                Don't have an account?{" "}
-                <Link to="/register" className="text-primary-600 dark:text-primary-400 font-medium hover:underline">
-                  Register
-                </Link>
+                Accounts are created by your administrator.
               </p>
             </>
-          )}
         </div>
 
         <Link

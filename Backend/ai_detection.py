@@ -7,7 +7,7 @@ from PIL import Image
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from typing import List, Optional
-from auth import get_current_user
+from auth import get_current_user, require_roles
 
 router = APIRouter()
 
@@ -160,7 +160,7 @@ class DetectionResponse(BaseModel):
 @router.post("/detect", response_model=DetectionResponse)
 async def detect_defects(
     file: UploadFile = File(...),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_roles("inspector")),
 ):
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image")

@@ -35,7 +35,7 @@ def test_login(client):
     reason="Model weights not present",
 )
 def test_detect(client):
-    app.dependency_overrides[get_current_user] = lambda: {"id": "smoke-test", "role": "inspector"}
+    app.dependency_overrides[get_current_user] = lambda: {"id": "smoke-test", "roles": ["inspector"]}
     try:
         buffer = io.BytesIO()
         Image.new("RGB", (320, 240), (128, 128, 128)).save(buffer, format="JPEG")

@@ -6,11 +6,6 @@ import api from "../../api/axios.js";
 import toast from "react-hot-toast";
 import { useAuth } from "../../context/AuthContext.jsx";
 
-const ROLE_COLOR = {
-  inspector:        "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-  facility_manager: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-};
-
 export default function SharedReports() {
   const { user }                      = useAuth();
   const navigate                      = useNavigate();
@@ -163,9 +158,6 @@ export default function SharedReports() {
                           <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{u.name}</p>
                           <p className="text-xs text-slate-400 truncate">{u.employee_id ? u.employee_id + " · " : ""}{u.email}</p>
                         </div>
-                        <span className={"text-[10px] px-1.5 py-0.5 rounded-full font-medium capitalize shrink-0 " + (ROLE_COLOR[u.role] || "")}>
-                          {u.role?.replace("_", " ")}
-                        </span>
                         {selected && <Check size={14} className="text-primary-600 shrink-0"/>}
                       </button>
                     );
@@ -219,7 +211,7 @@ export default function SharedReports() {
                 key={s.id}
                 className="flex items-start gap-4 px-5 py-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer"
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.04 }}
-                onClick={() => s.reports?.id && navigate("/inspector/reports/" + s.reports.id)}
+                onClick={() => s.reports?.id && navigate("/reports/" + s.reports.id, { state: { from: "/shared" } })}
               >
                 <div className="w-9 h-9 rounded-xl bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center shrink-0">
                   <FileText size={16} className="text-primary-600 dark:text-primary-400"/>

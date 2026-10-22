@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bell, Sun, Moon, LogOut, User, ChevronDown, Menu } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
+import { rolesText } from "../utils/roles.js";
 import api from "../api/axios.js";
 import toast from "react-hot-toast";
 
@@ -164,7 +165,7 @@ export default function TopNavBar({ onMenuToggle }) {
             </div>
             <div className="hidden sm:flex flex-col items-start">
               <span className="text-sm font-medium text-slate-800 dark:text-slate-200 leading-tight">{user?.name || "User"}</span>
-              <span className="text-[11px] text-slate-400 capitalize">{user?.role?.replace(/_/g, " ") || "inspector"}</span>
+              <span className="text-[11px] text-slate-400">{rolesText(user?.roles)}</span>
             </div>
             <ChevronDown size={14} className="text-slate-400" />
           </button>
@@ -179,7 +180,7 @@ export default function TopNavBar({ onMenuToggle }) {
                 className="absolute right-0 mt-2 w-48 card shadow-xl py-1 overflow-hidden"
               >
                 <Link
-                  to={user?.role === "admin" ? "/admin/profile" : "/inspector/profile"}
+                  to="/profile"
                   onClick={() => setDropdownOpen(false)}
                   className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
                 >

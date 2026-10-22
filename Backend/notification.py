@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from supabase import create_client, Client
-from auth import get_current_user
+from auth import ROLES, get_current_user, has_any_role, users_with_roles
 
 router = APIRouter()
 
@@ -49,7 +49,7 @@ def unread_count(current_user: dict = Depends(get_current_user)):
 
 @router.post("/", status_code=201)
 def create_notification(body: NotificationCreate, current_user: dict = Depends(get_current_user)):
-    if current_user.get("role") not in ("admin", "facility_manager"):
+    if not has_any_role(current_user, "admin"):
         raise HTTPException(status_code=403, detail="Not authorised")
     supabase = get_supabase()
     now      = datetime.now(timezone.utc).isoformat()
@@ -57,8 +57,10 @@ def create_notification(body: NotificationCreate, current_user: dict = Depends(g
     if body.target_role and body.target_role != "specific":
         if body.target_role == "all":
             users = supabase.table("users").select("id").eq("is_active", True).execute().data or []
+        elif body.target_role in ROLES:
+            users = users_with_roles(supabase, (body.target_role,))
         else:
-            users = supabase.table("users").select("id").eq("role", body.target_role).eq("is_active", True).execute().data or []
+            raise HTTPException(status_code=400, detail="Unknown role")
         rows = [{"user_id": u["id"], "title": body.title, "message": body.message, "type": body.type, "is_read": False, "created_at": now} for u in users]
         if rows:
             supabase.table("notifications").insert(rows).execute()
