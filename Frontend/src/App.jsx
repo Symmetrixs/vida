@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from "react-router-dom";
-import { useAuth } from "./context/AuthContext.jsx";
+import { useAuth } from "./context/auth.js";
 import { AnimatePresence } from "framer-motion";
 
 import Login           from "./view/Auth/Login.jsx";

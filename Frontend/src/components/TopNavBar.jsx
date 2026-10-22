@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bell, Sun, Moon, LogOut, User, ChevronDown, Menu } from "lucide-react";
-import { useAuth } from "../context/AuthContext.jsx";
+import { useAuth } from "../context/auth.js";
 import { rolesText } from "../utils/roles.js";
 import api from "../api/axios.js";
 import toast from "react-hot-toast";

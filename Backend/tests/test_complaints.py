@@ -4,6 +4,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.routing import APIRoute
 from PIL import Image
+from starlette.requests import Request
 
 import ai_detection
 import public
@@ -33,7 +34,7 @@ def _solve(captcha):
 def _form(captcha, **overrides):
     data = {
         "building_id":    BUILDING_ID,
-        "floor":          "Level 1",
+        "floor":          "Floor 1",
         "location_note":  "Corridor near BK-12",
         "description":    "Large crack on the wall next to the door",
         "captcha_token":  captcha["token"],
@@ -107,6 +108,22 @@ def test_submit_is_rate_limited(client, fake_db):
     response = client.post("/public/complaints", data=_form(captcha), files=[("photos", ("a.jpg", _image_bytes(), "image/jpeg"))])
     assert response.status_code == 429
     assert "complaints" not in fake_db.inserted
+
+
+def _request(peer, real_ip=None):
+    headers = [(b"x-real-ip", real_ip.encode())] if real_ip else []
+    return Request({"type": "http", "client": (peer, 5000), "headers": headers})
+
+
+def test_client_ip_trusts_the_header_only_from_nginx(monkeypatch):
+    monkeypatch.setattr(public, "TRUSTED_PROXY_HOSTS", ["frontend"])
+    monkeypatch.setattr(public, "_trusted_proxy_ips", lambda: {"172.18.0.3"})
+    assert public.client_ip(_request("172.18.0.3", "203.0.113.7")) == "203.0.113.7"
+    assert public.client_ip(_request("172.18.0.1", "203.0.113.7")) == "172.18.0.1"
+    assert public.client_ip(_request("172.18.0.3")) == "172.18.0.3"
+
+    monkeypatch.setattr(public, "TRUSTED_PROXY_HOSTS", [])
+    assert public.client_ip(_request("172.18.0.3", "203.0.113.7")) == "172.18.0.3"
 
 
 def test_submit_rejects_honeypot_and_bad_photos(client, fake_db):

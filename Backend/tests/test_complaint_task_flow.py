@@ -12,7 +12,7 @@ ADMIN = {"id": "admin1", "roles": ["admin"], "name": "Admin"}
 FM = {"id": "fm1", "roles": ["facility_manager"], "name": "Manager"}
 
 COMPLAINT_ROW = {
-    "id": "c1", "ref_no": 12, "floor": "Level 2", "location_note": "Lab corridor",
+    "id": "c1", "ref_no": 12, "floor": "Floor 2", "location_note": "Lab corridor",
     "description": "Water leaking from ceiling", "status": "in_progress", "due_date": "2026-10-30",
     "created_at": "2026-10-20T02:00:00+00:00", "buildings": {"name": "FTMK", "code": "FTMK-MAIN"},
     "reporter_name": "Ali", "reporter_email": "ali@example.com", "reporter_phone": "0123456789",
@@ -35,7 +35,7 @@ def test_snapshot_has_complaint_and_signed_photos_but_no_contact():
     snap = complaint.complaint_snapshot(db, "insp1")
     assert snap["reference"] == "VIDA-C-0012"
     assert snap["building"] == {"name": "FTMK", "code": "FTMK-MAIN"}
-    assert (snap["floor"], snap["location_note"], snap["description"]) == ("Level 2", "Lab corridor", "Water leaking from ceiling")
+    assert (snap["floor"], snap["location_note"], snap["description"]) == ("Floor 2", "Lab corridor", "Water leaking from ceiling")
     assert snap["photos"][0]["url"].startswith("https://signed.test/vida-complaints/c1/a.jpg")
     assert "storage_path" not in snap["photos"][0]
     assert not any(key.startswith("reporter") for key in snap)

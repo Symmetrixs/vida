@@ -6,7 +6,7 @@ import {
   Inbox, ShieldAlert, Files, BarChart3, Users, Building2, LayoutGrid, Hand, Hammer, Scale, HardHat,
 } from "lucide-react";
 import TopNavBar from "./TopNavBar.jsx";
-import { useAuth } from "../context/AuthContext.jsx";
+import { useAuth } from "../context/auth.js";
 import { rolesText } from "../utils/roles.js";
 import toast from "react-hot-toast";
 import clsx from "clsx";

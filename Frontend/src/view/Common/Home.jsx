@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ClipboardList, ClipboardCheck, ShieldAlert, Inbox, Users, Building2, FileText, BarChart3, Wrench, Plus, ArrowRight, LayoutGrid, Hammer, Scale, Hand } from "lucide-react";
 import api from "../../api/axios.js";
-import { useAuth } from "../../context/AuthContext.jsx";
+import { useAuth } from "../../context/auth.js";
 import { OPEN_STATUSES } from "../../utils/complaintUi.js";
 
 function RoleCard({ icon: Icon, title, color, delay, stats, actions, note }) {

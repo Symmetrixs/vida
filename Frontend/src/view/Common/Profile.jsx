@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { User, Save, Camera, Lock, Eye, EyeOff, BadgeCheck, Loader2, Phone, Building2, IdCard } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
-import { useAuth } from "../../context/AuthContext.jsx";
+import { useAuth } from "../../context/auth.js";
 import { roleBadge, roleLabel, rolesText } from "../../utils/roles.js";
 
 

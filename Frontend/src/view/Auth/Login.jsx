@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Eye, EyeOff, LogIn, AlertCircle, Megaphone } from "lucide-react";
-import { useAuth } from "../../context/AuthContext.jsx";
+import { useAuth } from "../../context/auth.js";
 import toast from "react-hot-toast";
 import logo from "../../assets/company-logo.png";
 

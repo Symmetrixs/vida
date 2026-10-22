@@ -8,7 +8,7 @@ import {
   Building2, Calendar, User, MapPin, Cloud, Layers, Pencil,
 } from "lucide-react";
 import api from "../../api/axios.js";
-import { useAuth } from "../../context/AuthContext.jsx";
+import { useAuth } from "../../context/auth.js";
 import toast from "react-hot-toast";
 import { exportReportPdf } from "../../model/pdfGenerator.js";
 import { exportReportDocx } from "../../model/docGenerator.js";
@@ -373,7 +373,7 @@ export default function ReportView() {
       setRows(existingRows);
     }).catch(() => { toast.error("Failed to load report"); navigate(backTo); })
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, backTo, navigate]);
 
   const handleRowChange = (groupId, field, value) => {
     setRows(prev => ({ ...prev, [groupId]: { ...(prev[groupId] || {}), [field]: value } }));

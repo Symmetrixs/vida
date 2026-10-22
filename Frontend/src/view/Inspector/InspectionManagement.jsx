@@ -68,6 +68,7 @@ export default function InspectionManagement() {
         <div className="space-y-3">
           {filtered.map((insp, i) => {
             const locked = isLocked(insp);
+            const reviewed = !!insp.severity;
             return (
               <motion.div key={insp.id} className="card p-4 flex items-center gap-4" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}>
                 <div className="w-11 h-11 rounded-xl bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center shrink-0">
@@ -82,7 +83,11 @@ export default function InspectionManagement() {
                   <p className="text-xs text-slate-400 mt-0.5">
                     {insp.buildings?.name || "No building"} · {new Date(insp.inspection_date || insp.created_at).toLocaleDateString("en-MY")}
                   </p>
-                  {locked && (
+                  {reviewed ? (
+                    <p className="text-[10px] text-green-600 dark:text-green-400 flex items-center gap-1 mt-0.5">
+                      <Lock size={10}/> Reviewed, locked
+                    </p>
+                  ) : locked && (
                     <p className="text-[10px] text-amber-500 flex items-center gap-1 mt-0.5">
                       <Lock size={10}/> Locked — inspections cannot be edited after 3 days
                     </p>
@@ -90,13 +95,17 @@ export default function InspectionManagement() {
                 </div>
                 <span className={STATUS_COLOR[insp.status] || "badge-gray"}>{insp.status}</span>
                 <div className="flex items-center gap-1 shrink-0">
-                  <Link to={`/inspections/${insp.id}/photo`} className="btn-ghost p-1.5 rounded-lg" title="Photos"><Camera size={14}/></Link>
-                  {locked ? (
+                  {reviewed ? (
+                    <Link to={`/inspections/${insp.id}/edit`} className="btn-ghost p-1.5 rounded-lg" title="Reviewed, locked"><Lock size={14}/></Link>
+                  ) : (
+                    <Link to={`/inspections/${insp.id}/photo`} className="btn-ghost p-1.5 rounded-lg" title="Photos"><Camera size={14}/></Link>
+                  )}
+                  {reviewed ? null : locked ? (
                     <span className="btn-ghost p-1.5 rounded-lg opacity-40 cursor-not-allowed" title="Locked after 3 days"><Lock size={14}/></span>
                   ) : (
                     <Link to={`/inspections/${insp.id}/edit`} className="btn-ghost p-1.5 rounded-lg" title="Edit"><Pencil size={14}/></Link>
                   )}
-                  <button onClick={() => handleDelete(insp.id)} className="btn-ghost p-1.5 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20" title="Delete"><Trash2 size={14}/></button>
+                  {!reviewed && <button onClick={() => handleDelete(insp.id)} className="btn-ghost p-1.5 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20" title="Delete"><Trash2 size={14}/></button>}
                 </div>
               </motion.div>
             );

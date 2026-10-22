@@ -39,7 +39,7 @@ def can_view_inspection(inspection: Optional[dict], user: dict) -> bool:
 
 
 def load_inspection(supabase: Client, inspection_id: str) -> dict:
-    rows = supabase.table("inspections").select("id, inspector_id, status").eq("id", inspection_id).execute().data
+    rows = supabase.table("inspections").select("id, inspector_id, status, severity").eq("id", inspection_id).execute().data
     if not rows:
         raise HTTPException(status_code=404, detail="Inspection not found")
     return rows[0]
@@ -49,6 +49,13 @@ def assert_owner(supabase: Client, inspection_id: str, user: dict) -> dict:
     inspection = load_inspection(supabase, inspection_id)
     if not owns_inspection(inspection, user):
         raise HTTPException(status_code=403, detail="Not authorised")
+    return inspection
+
+
+def assert_editable(supabase: Client, inspection_id: str, user: dict) -> dict:
+    inspection = assert_owner(supabase, inspection_id, user)
+    if inspection.get("severity"):
+        raise HTTPException(status_code=409, detail="This inspection has been reviewed and is locked")
     return inspection
 
 
@@ -223,7 +230,7 @@ def create_inspection(body: InspectionCreate, current_user: dict = Depends(requi
 @router.put("/{inspection_id}")
 def update_inspection(inspection_id: str, body: InspectionUpdate, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    assert_owner(supabase, inspection_id, current_user)
+    assert_editable(supabase, inspection_id, current_user)
 
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -235,7 +242,7 @@ def update_inspection(inspection_id: str, body: InspectionUpdate, current_user: 
 @router.delete("/{inspection_id}")
 def delete_inspection(inspection_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    assert_owner(supabase, inspection_id, current_user)
+    assert_editable(supabase, inspection_id, current_user)
     if supabase.table("repair_jobs").select("id").eq("inspection_id", inspection_id).execute().data:
         raise HTTPException(status_code=409, detail="This inspection has a repair job and cannot be deleted")
 
@@ -273,7 +280,7 @@ def delete_inspection(inspection_id: str, current_user: dict = Depends(get_curre
 @router.post("/{inspection_id}/submit")
 def submit_inspection(inspection_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    existing = assert_owner(supabase, inspection_id, current_user)
+    existing = assert_editable(supabase, inspection_id, current_user)
     result = supabase.table("inspections").update({
         "status": "submitted",
         "submitted_at": datetime.now(timezone.utc).isoformat(),

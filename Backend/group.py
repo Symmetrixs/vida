@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from typing import List, Optional, Any
 from auth import get_current_user
 from complaint import sync_complaint
-from inspection import assert_owner, assert_viewer
+from inspection import assert_editable, assert_viewer
 from supabase import create_client, Client
 import os
 from dotenv import load_dotenv
@@ -64,7 +64,7 @@ def get_groups(inspection_id: str, current_user: dict = Depends(get_current_user
 @router.post("/{inspection_id}/save")
 def save_groups(inspection_id: str, body: SaveGroupsBody, current_user: dict = Depends(get_current_user)):
     sb = get_supabase()
-    assert_owner(sb, inspection_id, current_user)
+    assert_editable(sb, inspection_id, current_user)
     existing = sb.table("inspection_groups").select("id").eq("inspection_id", inspection_id).execute().data or []
     existing_ids = {r["id"] for r in existing}
 
@@ -118,7 +118,7 @@ def save_groups(inspection_id: str, body: SaveGroupsBody, current_user: dict = D
 @router.delete("/{inspection_id}")
 def delete_all_groups(inspection_id: str, current_user: dict = Depends(get_current_user)):
     sb = get_supabase()
-    assert_owner(sb, inspection_id, current_user)
+    assert_editable(sb, inspection_id, current_user)
     group_ids = [g["id"] for g in (sb.table("inspection_groups").select("id").eq("inspection_id", inspection_id).execute().data or [])]
     if group_ids:
         sb.table("group_annotations").delete().in_("group_id", group_ids).execute()
@@ -137,7 +137,7 @@ def update_group_name(group_id: str, body: GroupNameUpdate, current_user: dict =
     rows = sb.table("inspection_groups").select("inspection_id").eq("id", group_id).execute().data
     if not rows:
         raise HTTPException(status_code=404, detail="Group not found")
-    assert_owner(sb, rows[0]["inspection_id"], current_user)
+    assert_editable(sb, rows[0]["inspection_id"], current_user)
     result = sb.table("inspection_groups").update({"name": body.name}).eq("id", group_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Group not found")

@@ -45,7 +45,7 @@ export default function InspectionPart3() {
     api.get(`/findings/?inspection_id=${inspectionId}`)
       .then(r => setFindings(r.data))
       .catch(() => setFindings([]));
-  }, [inspectionId]);
+  }, [inspectionId, navigate]);
 
   const deleteFinding = async (findingId) => {
     try {

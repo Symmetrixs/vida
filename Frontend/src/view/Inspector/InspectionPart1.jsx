@@ -4,19 +4,13 @@ import { motion } from "framer-motion";
 import { ChevronRight, Building2 } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
+import { floorOptions } from "../../utils/floors.js";
 
 const SS_KEY = "vida_part1_draft";
 const ssSave = v => { try { sessionStorage.setItem(SS_KEY, JSON.stringify(v)); } catch {} };
 const ssLoad = def => { try { const s = sessionStorage.getItem(SS_KEY); return s ? JSON.parse(s) : def; } catch { return def; } };
 
 const BLANK = { title: "", building_id: "", inspection_date: new Date().toISOString().slice(0,10), weather_condition: "sunny", floor_level: "", area_inspected: "", description: "" };
-
-const floorOptions = (floors) => {
-  const opts = ["Ground Floor"];
-  for (let i = 1; i < (floors || 5); i++) opts.push(`Level ${i}`);
-  opts.push("Rooftop");
-  return opts;
-};
 
 export default function InspectionPart1() {
   const navigate  = useNavigate();

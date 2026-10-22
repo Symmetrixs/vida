@@ -246,7 +246,7 @@ def test_inspection_endpoints_update_the_complaint_and_reports_do_not(client, lo
 def test_assigned_tasks_lists_open_work_then_recent_submissions(client, login, monkeypatch):
     today = complaint.today_myt()
     now = datetime.now(timezone.utc)
-    base = {"floor": "Level 1", "location_note": "Corridor", "description": "Crack", "reviewed_at": now.isoformat(),
+    base = {"floor": "Floor 1", "location_note": "Corridor", "description": "Crack", "reviewed_at": now.isoformat(),
             "started_at": None, "submitted_at": None, "severity": None, "buildings": {"name": "FTMK", "code": "FTMK-MAIN"}}
 
     def insp(i, status="draft"):

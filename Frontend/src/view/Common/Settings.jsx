@@ -1,4 +1,4 @@
-import { useAuth } from "../../context/AuthContext.jsx";
+import { useAuth } from "../../context/auth.js";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { Settings as SettingsIcon, Sun, Moon, User, Lock, ArrowRight } from "lucide-react";

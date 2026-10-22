@@ -4,7 +4,7 @@ import { Users as UsersIcon, Search, Pencil, Trash2, X, UserPlus } from "lucide-
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
 import clsx from "clsx";
-import { useAuth } from "../../context/AuthContext.jsx";
+import { useAuth } from "../../context/auth.js";
 import { ROLE_OPTIONS, roleBadge, roleLabel } from "../../utils/roles.js";
 
 const EMPTY = { name: "", email: "", employee_id: "", password: "", roles: ["inspector"], is_active: true };

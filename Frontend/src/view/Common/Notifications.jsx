@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Bell, Plus, Trash2, Users, User, ChevronDown, CheckCircle, Info, AlertTriangle, XCircle } from "lucide-react";
 import api from "../../api/axios.js";
-import { useAuth } from "../../context/AuthContext.jsx";
+import { useAuth } from "../../context/auth.js";
 import { rolesText } from "../../utils/roles.js";
 import toast from "react-hot-toast";
 

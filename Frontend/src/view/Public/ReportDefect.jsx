@@ -5,19 +5,14 @@ import { AlertCircle, ArrowLeft, CheckCircle2, Copy, ImagePlus, RefreshCw, Send,
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
 import logo from "../../assets/company-logo.png";
+import { floorOptions } from "../../utils/floors.js";
 
 const MAX_PHOTOS = 3;
 const MAX_BYTES = 5 * 1024 * 1024;
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const BLANK = { building_id: "", floor: "", location_note: "", description: "", reporter_name: "", reporter_email: "", reporter_phone: "", website: "" };
 
-const floorOptions = (floors) => {
-  const opts = ["Ground Floor"];
-  for (let i = 1; i < (floors || 5); i++) opts.push(`Level ${i}`);
-  opts.push("Rooftop");
-  opts.push("Outside the building");
-  return opts;
-};
+const locationOptions = (floors) => [...floorOptions(floors), "Outside the building"];
 
 const errorText = (err, fallback) => {
   const detail = err.response?.data?.detail;
@@ -160,7 +155,7 @@ export default function ReportDefect() {
                   <label className="label">Floor <span className="text-red-500">*</span></label>
                   <select value={form.floor} onChange={e => set("floor", e.target.value)} className="input" required disabled={!form.building_id}>
                     <option value="">{form.building_id ? "Select floor..." : "Select building first"}</option>
-                    {selBuilding && floorOptions(selBuilding.floors).map(f => <option key={f} value={f}>{f}</option>)}
+                    {selBuilding && locationOptions(selBuilding.floors).map(f => <option key={f} value={f}>{f}</option>)}
                   </select>
                 </div>
               </div>

@@ -6,7 +6,7 @@ import {
   ChevronDown, X, Building2, Calendar, User,
 } from "lucide-react";
 import api from "../../api/axios.js";
-import { useAuth } from "../../context/AuthContext.jsx";
+import { useAuth } from "../../context/auth.js";
 import toast from "react-hot-toast";
 
 const STATUS_COLOR = {

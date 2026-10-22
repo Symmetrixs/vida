@@ -11,7 +11,6 @@ from inspection import router as inspection_router
 from finding import router as finding_router
 from photo import router as photo_router
 from report import router as report_router
-from recommendation import router as recommendation_router
 from notification import router as notification_router
 from inspector import router as inspector_router
 from ai_detection import router as ai_router
@@ -59,7 +58,6 @@ app.include_router(finding_router,        prefix="/findings",        tags=["Find
 app.include_router(photo_router,          prefix="/photos",          tags=["Photos"])
 app.include_router(ai_router,             prefix="/ai",              tags=["AI Detection"])
 app.include_router(report_router,         prefix="/reports",         tags=["Reports"])
-app.include_router(recommendation_router, prefix="/recommendations",  tags=["Recommendations"])
 app.include_router(notification_router,   prefix="/notifications",   tags=["Notifications"])
 app.include_router(inspector_router,      prefix="/inspector",       tags=["Inspector"])
 app.include_router(group_router,          prefix="/groups",          tags=["Groups"])

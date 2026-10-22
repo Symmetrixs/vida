@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BarChart3, Download, TrendingUp, AlertTriangle, ClipboardList,
@@ -99,22 +99,24 @@ function SortableLeaderboard({ title, icon: Icon, rows, nameKey = "name", countK
   );
 }
 
+const NO_FILTERS = { date_from: "", date_to: "", building_id: "", inspector_id: "" };
+
 export default function Analytics() {
   const [data,        setData]        = useState(null);
   const [loading,     setLoading]     = useState(true);
   const [showFilters, setShowFilters] = useState(false);
-  const [filters,     setFilters]     = useState({ date_from: "", date_to: "", building_id: "", inspector_id: "" });
+  const [filters,     setFilters]     = useState(NO_FILTERS);
 
-  const fetchData = (f = filters) => {
+  const fetchData = useCallback((f) => {
     setLoading(true);
     const params = Object.fromEntries(Object.entries(f).filter(([_, v]) => v));
     api.get("/admin/analytics", { params })
       .then(r => setData(r.data))
       .catch(() => toast.error("Failed to load analytics"))
       .finally(() => setLoading(false));
-  };
+  }, []);
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { fetchData(NO_FILTERS); }, [fetchData]);
 
   const activeFilters = Object.values(filters).filter(Boolean).length;
 
@@ -263,7 +265,7 @@ export default function Analytics() {
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2"><Filter size={13}/> Filter Analytics</h3>
               {activeFilters > 0 && (
-                <button onClick={() => { const e = { date_from: "", date_to: "", building_id: "", inspector_id: "" }; setFilters(e); fetchData(e); }} className="text-xs text-red-500 hover:text-red-600 flex items-center gap-1">
+                <button onClick={() => { setFilters(NO_FILTERS); fetchData(NO_FILTERS); }} className="text-xs text-red-500 hover:text-red-600 flex items-center gap-1">
                   <X size={11}/> Clear all
                 </button>
               )}

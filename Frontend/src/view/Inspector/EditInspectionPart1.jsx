@@ -5,16 +5,32 @@ import { Save, ArrowLeft, ClipboardList, Camera, Lock, Inbox, MapPin, CalendarCl
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
 import InspectionPhoto from "./InspectionPhoto.jsx";
-
-const generateFloors = (count) => {
-  if (!count || count < 1) return [];
-  const list = ["Ground Floor"];
-  for (let i = 1; i < count; i++) list.push(`Floor ${i}`);
-  list.push("Rooftop");
-  return list;
-};
+import { floorOptions } from "../../utils/floors.js";
+import { SEVERITY_CLASS, fmtDateTime } from "../../utils/complaintUi.js";
 
 const fmtDay = (d) => new Date(`${d}T00:00:00`).toLocaleDateString("en-MY", { dateStyle: "medium" });
+
+function ReviewedLock({ review, onBack }) {
+  return (
+    <motion.div
+      className="card p-6 flex flex-col items-center justify-center gap-3 py-12 text-center"
+      initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+    >
+      <Lock size={44} className="text-slate-400"/>
+      <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Reviewed, locked</h3>
+      <p className="text-sm text-slate-500 dark:text-slate-400 max-w-sm">
+        A facility manager has reviewed this inspection. Its details, photos and findings can no longer be changed.
+      </p>
+      <div className="flex items-center gap-2 text-sm">
+        <span className="text-slate-500 dark:text-slate-400">Severity</span>
+        <span className={SEVERITY_CLASS[review.severity]}>{review.severity}</span>
+        {review.at && <span className="text-xs text-slate-400">{fmtDateTime(review.at)}</span>}
+      </div>
+      {review.note && <p className="text-sm text-slate-600 dark:text-slate-300 max-w-md">{review.note}</p>}
+      <button onClick={onBack} className="btn-secondary mt-2">Go Back</button>
+    </motion.div>
+  );
+}
 
 function ComplaintBox({ complaint }) {
   return (
@@ -59,6 +75,7 @@ export default function EditInspectionPart1() {
   const [customFloor, setCustomFloor] = useState(false);
 
   const [locked, setLocked] = useState(false);
+  const [review, setReview] = useState(null);
   const [complaint, setComplaint] = useState(null);
   const [reference, setReference] = useState(null);
 
@@ -71,6 +88,7 @@ export default function EditInspectionPart1() {
       const d = insp.data;
       setComplaint(comp.data);
       setReference(d.reference);
+      setReview(d.severity ? { severity: d.severity, note: d.severity_note, at: d.assessed_at } : null);
       const openComplaintDraft = !!comp.data && d.status === "draft";
       if (d.created_at && !openComplaintDraft) {
         const age = (Date.now() - new Date(d.created_at).getTime()) / (1000 * 60 * 60 * 24);
@@ -94,8 +112,8 @@ export default function EditInspectionPart1() {
     [buildings, form?.building_id]
   );
 
-  const floorOptions = useMemo(
-    () => generateFloors(selectedBuilding?.floors),
+  const floorList = useMemo(
+    () => (selectedBuilding ? floorOptions(selectedBuilding.floors) : []),
     [selectedBuilding]
   );
 
@@ -150,7 +168,9 @@ export default function EditInspectionPart1() {
 
       {complaint && <ComplaintBox complaint={complaint}/>}
 
-      <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-fit">
+      {review && <ReviewedLock review={review} onBack={() => navigate(-1)}/>}
+
+      {!review && <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-fit">
         <button
           onClick={() => setTab("details")}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
@@ -171,9 +191,9 @@ export default function EditInspectionPart1() {
         >
           <Camera size={15}/> Photos
         </button>
-      </div>
+      </div>}
 
-      {tab === "details" && locked && (
+      {!review && tab === "details" && locked && (
         <motion.div
           className="card p-6 flex flex-col items-center justify-center gap-3 py-12 text-center"
           initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
@@ -187,7 +207,7 @@ export default function EditInspectionPart1() {
         </motion.div>
       )}
 
-      {tab === "details" && !locked && (
+      {!review && tab === "details" && !locked && (
         <motion.form
           onSubmit={handleSave}
           className="card p-6 space-y-5"
@@ -259,7 +279,7 @@ export default function EditInspectionPart1() {
                   className="input"
                 >
                   <option value="">Select a floor…</option>
-                  {floorOptions.map(f => <option key={f} value={f}>{f}</option>)}
+                  {floorList.map(f => <option key={f} value={f}>{f}</option>)}
                   <option value="__custom__">Other (type custom)…</option>
                 </select>
               )}
@@ -284,7 +304,7 @@ export default function EditInspectionPart1() {
         </motion.form>
       )}
 
-      {tab === "photos" && (
+      {!review && tab === "photos" && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
           {complaint && (
             <p className="text-xs text-slate-500 dark:text-slate-400">Add any new photos, run the AI scan, then press Save &amp; Submit. Facility managers are notified to review it.</p>

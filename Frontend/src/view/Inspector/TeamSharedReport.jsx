@@ -4,7 +4,7 @@ import { Share2, FileText, User, Search, X, Check, Building2, Calendar, External
 import { useNavigate } from "react-router-dom";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
-import { useAuth } from "../../context/AuthContext.jsx";
+import { useAuth } from "../../context/auth.js";
 
 export default function SharedReports() {
   const { user }                      = useAuth();

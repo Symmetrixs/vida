@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from supabase import create_client, Client
 from auth import get_current_user
 from complaint import mark_started, sync_complaint
-from inspection import assert_owner, assert_viewer
+from inspection import assert_editable, assert_viewer
 
 router = APIRouter()
 
@@ -35,7 +35,7 @@ async def upload_photo(
         raise HTTPException(status_code=413, detail="File exceeds 10MB limit")
 
     supabase = get_supabase()
-    assert_owner(supabase, inspection_id, current_user)
+    assert_editable(supabase, inspection_id, current_user)
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else "jpg"
     filename = f"{inspection_id}/{uuid.uuid4()}.{ext}"
 
@@ -86,7 +86,7 @@ def delete_photo(photo_id: str, current_user: dict = Depends(get_current_user)):
     if not rows:
         raise HTTPException(status_code=404, detail="Photo not found")
     photo = rows[0]
-    assert_owner(supabase, photo["inspection_id"], current_user)
+    assert_editable(supabase, photo["inspection_id"], current_user)
 
     supabase.table("group_photos").delete().eq("photo_id", photo_id).execute()
     supabase.table("findings").delete().eq("photo_id", photo_id).execute()

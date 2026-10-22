@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ArrowLeft, MapPin, ClipboardList, Image as ImageIcon, ShieldAlert, Send, Inbox, Cloud, Calendar, User, Hammer } from "lucide-react";
 import api from "../../api/axios.js";
-import { useAuth } from "../../context/AuthContext.jsx";
+import { useAuth } from "../../context/auth.js";
 import toast from "react-hot-toast";
 import clsx from "clsx";
 import { SEVERITIES, SEVERITY_CLASS, SEVERITY_HELP, fmtDateTime, fmtDay } from "../../utils/complaintUi.js";

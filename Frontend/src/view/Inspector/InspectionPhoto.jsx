@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useDropzone } from "react-dropzone";
@@ -89,12 +89,15 @@ export default function InspectionPhoto({ inspectionId: propId, embedded = false
   const [dbGroupsLoaded, setDbGroupsLoaded] = useState(false);
   const [lightbox,   setLightbox]   = useState({ open: false, photo: null });
 
+  const latest = useRef({ aiResults, savedAnnot });
+  useEffect(() => { latest.current = { aiResults, savedAnnot }; });
+
   useEffect(() => { ssSave(inspId, "aiResults", aiResults); }, [aiResults, inspId]);
   useEffect(() => { ssSave(inspId, "groups", groups); }, [groups, inspId]);
   useEffect(() => { setAnnot(inspId, savedAnnot); }, [savedAnnot, inspId]);
-  useEffect(() => { onStateChange?.({ groups, aiResults, savedAnnot }); }, [groups, aiResults, savedAnnot]);
+  useEffect(() => { onStateChange?.({ groups, aiResults, savedAnnot }); }, [groups, aiResults, savedAnnot, onStateChange]);
 
-  const saveGroupsToDB = async (currentGroups, currentAnnot) => {
+  const saveGroupsToDB = useCallback(async (currentGroups, currentAnnot) => {
     if (!inspId || !currentGroups.length) return;
     try {
       await api.post(`/groups/${inspId}/save`, {
@@ -111,13 +114,13 @@ export default function InspectionPhoto({ inspectionId: propId, embedded = false
         })),
       });
     } catch {}
-  };
+  }, [inspId]);
 
 
 
-  const fetchPhotos = () => api.get(`/photos/${inspId}/list`).then(r => setPhotos(r.data)).catch(() => {});
+  const fetchPhotos = useCallback(() => api.get(`/photos/${inspId}/list`).then(r => setPhotos(r.data)).catch(() => {}), [inspId]);
 
-  useEffect(() => { if (inspId) fetchPhotos(); }, [inspId]);
+  useEffect(() => { if (inspId) fetchPhotos(); }, [inspId, fetchPhotos]);
 
   useEffect(() => {
     if (!inspId) return;
@@ -144,7 +147,7 @@ export default function InspectionPhoto({ inspectionId: propId, embedded = false
   }, [inspId]);
 
   useEffect(() => {
-    if (!inspId || Object.keys(aiResults).length > 0) return;
+    if (!inspId || Object.keys(latest.current.aiResults).length > 0) return;
     api.get(`/findings/?inspection_id=${inspId}`).then(r => {
       const findings = r.data || [];
       if (!findings.length) return;
@@ -172,10 +175,10 @@ export default function InspectionPhoto({ inspectionId: propId, embedded = false
       const newIds  = photos.filter(p => !usedIds.has(p.id)).map(p => p.id);
       if (!newIds.length) return prev;
       const updated = [...prev, { id: `g-${Date.now()}`, label: String(prev.length + 1), photoIds: newIds }];
-      setTimeout(() => saveGroupsToDB(updated, savedAnnot), 100);
+      setTimeout(() => saveGroupsToDB(updated, latest.current.savedAnnot), 100);
       return updated;
     });
-  }, [photos, dbGroupsLoaded]);
+  }, [photos, dbGroupsLoaded, saveGroupsToDB]);
 
   const onDrop = useCallback(async (files) => {
     setUploading(true);
@@ -189,7 +192,7 @@ export default function InspectionPhoto({ inspectionId: propId, embedded = false
     await fetchPhotos();
     toast.success(`${files.length} photo(s) uploaded`);
     setUploading(false);
-  }, [inspId]);
+  }, [inspId, fetchPhotos]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop, accept: { "image/*": [".jpg", ".jpeg", ".png", ".webp"] }, multiple: true,

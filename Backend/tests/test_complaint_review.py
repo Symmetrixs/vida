@@ -10,7 +10,7 @@ ADMIN = {"id": "admin1", "roles": ["admin"], "name": "Admin"}
 FM = {"id": "fm1", "roles": ["facility_manager"], "name": "Farah Manager"}
 
 COMPLAINT = {
-    "id": "c1", "ref_no": 21, "floor": "Level 1", "location_note": "Corridor", "description": "Crack on wall",
+    "id": "c1", "ref_no": 21, "floor": "Floor 1", "location_note": "Corridor", "description": "Crack on wall",
     "status": "submitted", "reject_reason": None, "inspection_id": "insp1", "reviewed_at": "2026-10-20T01:00:00+00:00",
     "due_date": "2026-10-25", "started_at": "2026-10-20T02:00:00+00:00", "submitted_at": "2026-10-21T02:00:00+00:00",
     "severity": None, "severity_note": None, "assessed_at": None, "created_at": "2026-10-19T01:00:00+00:00",
@@ -32,7 +32,7 @@ def _review_db(status="submitted"):
         ("complaints", "select"): [dict(COMPLAINT, status=status)],
         ("complaint_photos", "select"): [],
         ("inspections", "select"): [{"id": "insp1", "title": "Complaint VIDA-C-0021", "status": "submitted", "inspection_date": "2026-10-20",
-                                      "weather_condition": "sunny", "floor_level": "Level 1", "area_inspected": "Corridor",
+                                      "weather_condition": "sunny", "floor_level": "Floor 1", "area_inspected": "Corridor",
                                       "description": "Crack", "remarks": None, "submitted_at": "2026-10-21T02:00:00+00:00", "users": {"name": "Owner"}}],
         ("photos", "select"): [{"id": "p1", "url": "https://storage.test/p1.jpg", "description": None, "created_at": "2026-10-20T02:00:00+00:00"}],
         ("findings", "select"): [

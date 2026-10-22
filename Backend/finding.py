@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from supabase import create_client, Client
 from auth import MANAGER_ROLES, get_current_user, has_any_role
 from complaint import sync_complaint
-from inspection import assert_owner, assert_viewer
+from inspection import assert_editable, assert_viewer
 
 router = APIRouter()
 
@@ -41,7 +41,7 @@ def _assert_finding_owner(supabase: Client, finding_id: str, user: dict):
     rows = supabase.table("findings").select("inspection_id").eq("id", finding_id).execute().data
     if not rows:
         raise HTTPException(status_code=404, detail="Finding not found")
-    assert_owner(supabase, rows[0]["inspection_id"], user)
+    assert_editable(supabase, rows[0]["inspection_id"], user)
 
 
 @router.get("/")
@@ -75,7 +75,7 @@ def create_finding(body: FindingCreate, current_user: dict = Depends(get_current
         raise HTTPException(status_code=400, detail=f"Invalid severity. Must be one of: {SEVERITIES}")
 
     supabase = get_supabase()
-    assert_owner(supabase, body.inspection_id, current_user)
+    assert_editable(supabase, body.inspection_id, current_user)
     data = body.model_dump()
     data["created_by"] = current_user["id"]
     data["status"] = "open"
@@ -105,7 +105,7 @@ def delete_findings_by_photo(photo_id: str, current_user: dict = Depends(get_cur
     photos = supabase.table("photos").select("inspection_id").eq("id", photo_id).execute().data
     if not photos:
         raise HTTPException(status_code=404, detail="Photo not found")
-    assert_owner(supabase, photos[0]["inspection_id"], current_user)
+    assert_editable(supabase, photos[0]["inspection_id"], current_user)
     finding_ids = [f["id"] for f in (supabase.table("findings").select("id").eq("photo_id", photo_id).execute().data or [])]
     if finding_ids:
         supabase.table("recommendations").delete().in_("finding_id", finding_ids).execute()
