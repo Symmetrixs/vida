@@ -137,6 +137,18 @@ def _run_inference(image: Image.Image, conf: float):
     return results
 
 
+def scan_image_bytes(contents: bytes) -> list:
+    image = Image.open(io.BytesIO(contents)).convert("RGB")
+    return _run_inference(image, CONFIDENCE_THRESHOLD)
+
+
+def count_labels(detections: Optional[list]) -> dict:
+    counts = {}
+    for d in detections or []:
+        counts[d["label"]] = counts.get(d["label"], 0) + 1
+    return counts
+
+
 class BoundingBox(BaseModel):
     xmin: float
     ymin: float
@@ -160,7 +172,7 @@ class DetectionResponse(BaseModel):
 @router.post("/detect", response_model=DetectionResponse)
 async def detect_defects(
     file: UploadFile = File(...),
-    current_user: dict = Depends(require_roles("inspector")),
+    current_user: dict = Depends(require_roles("inspector", "maintenance", "facility_manager")),
 ):
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="File must be an image")

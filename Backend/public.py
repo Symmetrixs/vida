@@ -52,6 +52,10 @@ def format_inspection_reference(ref_no: int) -> str:
     return f"VIDA-I-{ref_no:04d}"
 
 
+def format_repair_reference(ref_no: int) -> str:
+    return f"VIDA-R-{ref_no:04d}"
+
+
 def _trusted_proxy_ips() -> set:
     ips = set()
     for host in TRUSTED_PROXY_HOSTS:

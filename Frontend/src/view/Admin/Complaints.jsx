@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Inbox, X, Image as ImageIcon, MapPin, User, ClipboardCheck, Ban, CalendarClock, AlertTriangle, FileText, Circle, CheckCircle2, ShieldAlert, Eye } from "lucide-react";
+import { Inbox, X, Image as ImageIcon, MapPin, User, ClipboardCheck, Ban, CalendarClock, AlertTriangle, FileText, Circle, CheckCircle2, ShieldAlert, Eye, ScanSearch } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
 import clsx from "clsx";
 import { OPEN_STATUSES, STATUS_LABEL, STATUS_CLASS, SEVERITY_CLASS, fmtDateTime as fmtDate, fmtDay } from "../../utils/complaintUi.js";
+import { countsText } from "../../utils/repairUi.js";
 
 const TABS = [
   { key: "pending",     label: "Pending" },
@@ -15,8 +16,6 @@ const TABS = [
   { key: "reviewed",    label: "Reviewed" },
   { key: "rejected",    label: "Rejected" },
 ];
-
-const REVIEW_TABS = TABS.filter(t => t.key === "submitted" || t.key === "reviewed");
 
 const localToday = () => {
   const d = new Date();
@@ -98,11 +97,15 @@ function ComplaintModal({ complaintId, onClose, onChanged }) {
   const [convertForm, setConvertForm] = useState({ inspector_id: "", title: "", inspection_date: localToday(), due_date: "" });
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
+  const [scans, setScans] = useState(null);
 
   useEffect(() => {
     api.get(`/complaints/${complaintId}`).then(r => {
       setComplaint(r.data);
       setConvertForm(f => ({ ...f, title: `Complaint ${r.data.reference}` }));
+      api.post(`/complaints/${complaintId}/scan`, null, { timeout: 120000 })
+        .then(s => setScans(Object.fromEntries(s.data.map(x => [x.id, x]))))
+        .catch(() => setScans({}));
     }).catch(() => { toast.error("Failed to load complaint"); onClose(); });
   }, [complaintId, onClose]);
 
@@ -162,12 +165,20 @@ function ComplaintModal({ complaintId, onClose, onChanged }) {
             </div>
 
             <div className="grid grid-cols-3 gap-3 mb-4">
-              {complaint.photos.map((p, i) => p.url ? (
-                <a key={p.id} href={p.url} target="_blank" rel="noreferrer" className="block aspect-square rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700">
-                  <img src={p.url} alt={`Complaint photo ${i + 1}`} className="w-full h-full object-cover hover:scale-105 transition-transform"/>
-                </a>
-              ) : (
-                <div key={p.id} className="aspect-square rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400"><ImageIcon size={20}/></div>
+              {complaint.photos.map((p, i) => (
+                <div key={p.id} className="space-y-1">
+                  {p.url ? (
+                    <a href={p.url} target="_blank" rel="noreferrer" className="block aspect-square rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700">
+                      <img src={p.url} alt={`Complaint photo ${i + 1}`} className="w-full h-full object-cover hover:scale-105 transition-transform"/>
+                    </a>
+                  ) : (
+                    <div className="aspect-square rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400"><ImageIcon size={20}/></div>
+                  )}
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 flex items-start gap-1">
+                    <ScanSearch size={11} className="mt-0.5 shrink-0"/>
+                    {scans === null ? "AI scanning..." : scans[p.id]?.scanned ? countsText(scans[p.id].counts) : "AI scan unavailable"}
+                  </p>
+                </div>
               ))}
             </div>
 
@@ -204,7 +215,7 @@ function ComplaintModal({ complaintId, onClose, onChanged }) {
                       Inspection {complaint.inspection.status} · {complaint.inspection.inspector_name || "Unknown inspector"} · {complaint.inspection.photo_count ?? 0} photos · {complaint.inspection.finding_count ?? 0} findings
                     </p>
                   </div>
-                  <Link to={`/complaints/${complaint.id}/review`} className={canReview ? "btn-primary text-xs" : "btn-secondary text-xs"}>
+                  <Link to={`/inspections/${complaint.inspection.id}/review`} className={canReview ? "btn-primary text-xs" : "btn-secondary text-xs"}>
                     {canReview ? <><ShieldAlert size={13}/> Review and set severity</> : <><Eye size={13}/> View inspection</>}
                   </Link>
                 </div>
@@ -270,11 +281,10 @@ function ComplaintModal({ complaintId, onClose, onChanged }) {
   );
 }
 
-export default function Complaints({ mode = "inbox" }) {
-  const review = mode === "review";
-  const tabs = review ? REVIEW_TABS : TABS;
+export default function Complaints() {
+  const tabs = TABS;
   const [complaints, setComplaints] = useState([]);
-  const [tab, setTab] = useState(review ? "submitted" : "pending");
+  const [tab, setTab] = useState("pending");
   const [loading, setLoading] = useState(true);
   const [openId, setOpenId] = useState(null);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -303,17 +313,8 @@ export default function Complaints({ mode = "inbox" }) {
   return (
     <div className="space-y-6">
       <div className="page-header">
-        {review ? (
-          <>
-            <h1 className="page-title flex items-center gap-2"><ShieldAlert size={22}/> Severity Review</h1>
-            <p className="page-subtitle">Complaint inspections submitted by inspectors. Set one overall severity for each and it is sent to the admins.</p>
-          </>
-        ) : (
-          <>
-            <h1 className="page-title flex items-center gap-2"><Inbox size={22}/> Complaints</h1>
-            <p className="page-subtitle">Defects reported by the public. Nothing here counts in statistics or reports until it is converted into an inspection.</p>
-          </>
-        )}
+        <h1 className="page-title flex items-center gap-2"><Inbox size={22}/> Complaints</h1>
+        <p className="page-subtitle">Defects reported by the public. Nothing here counts in statistics or reports until it is converted into an inspection. Photos are scanned by the AI model when you open a complaint.</p>
       </div>
 
       <div className="flex gap-2 flex-wrap">

@@ -1,7 +1,7 @@
 export const ROLE_OPTIONS = [
   { value: "inspector",        label: "Inspector",        badge: "badge-green",  desc: "Creates inspections and reports" },
   { value: "maintenance",      label: "Maintenance",      badge: "badge-yellow", desc: "Carries out repair work" },
-  { value: "facility_manager", label: "Facility Manager", badge: "badge-blue",   desc: "Handles complaints and severity review" },
+  { value: "facility_manager", label: "Facility Manager", badge: "badge-blue",   desc: "Handles complaints, severity review and repair jobs" },
   { value: "admin",            label: "Admin",            badge: "badge-red",    desc: "Manages staff, buildings and statistics" },
 ];
 

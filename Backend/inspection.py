@@ -5,12 +5,25 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from supabase import create_client, Client
 from auth import MANAGER_ROLES, get_current_user, has_any_role, require_roles
-from complaint import complaint_snapshot, mark_started, notify_complaint_submitted, release_complaint, sync_complaint
-from public import format_inspection_reference, format_reference
+from complaint import SEVERITIES, ReviewBody, apply_review, complaint_snapshot, mark_started, notify_inspection_submitted, release_complaint, sync_complaint
+from public import format_inspection_reference, format_reference, format_repair_reference
 
 router = APIRouter()
 
 require_inspector = require_roles("inspector")
+require_facility_manager = require_roles("facility_manager")
+require_review_reader = require_roles(*MANAGER_ROLES)
+
+QUEUE_COLUMNS = (
+    "id, ref_no, title, floor_level, area_inspected, submitted_at, severity, severity_note, assessed_at, "
+    "buildings(name, code), users!inspector_id(name), assessor:users!assessed_by(name), "
+    "complaints(ref_no), findings(severity), photos(id), repair_jobs(id, ref_no, status)"
+)
+REVIEW_COLUMNS = (
+    "id, ref_no, title, status, inspection_date, weather_condition, floor_level, area_inspected, description, remarks, "
+    "submitted_at, severity, severity_note, assessed_at, buildings(name, code), users!inspector_id(name), "
+    "assessor:users!assessed_by(name), complaints(ref_no), repair_jobs(id, ref_no, status)"
+)
 
 
 def get_supabase() -> Client:
@@ -52,6 +65,26 @@ def with_references(row: dict) -> dict:
     if isinstance(linked, dict):
         linked = [linked]
     row["complaint_reference"] = format_reference(linked[0]["ref_no"]) if linked else None
+    return row
+
+
+def first_embed(value):
+    if isinstance(value, list):
+        return value[0] if value else None
+    return value
+
+
+def highest_severity(findings: list) -> Optional[str]:
+    ranked = [f["severity"] for f in findings if f.get("severity") in SEVERITIES]
+    return max(ranked, key=SEVERITIES.index) if ranked else None
+
+
+def review_shape(row: dict) -> dict:
+    with_references(row)
+    row["inspector_name"] = (row.pop("users", None) or {}).get("name")
+    row["assessor"] = (row.get("assessor") or {}).get("name")
+    job = first_embed(row.pop("repair_jobs", None))
+    row["repair_job"] = {"id": job["id"], "reference": format_repair_reference(job["ref_no"]), "status": job["status"]} if job else None
     return row
 
 
@@ -99,6 +132,67 @@ def list_inspections(current_user: dict = Depends(require_inspector)):
     return rows
 
 
+@router.get("/review-queue")
+def review_queue(reviewer: dict = Depends(require_facility_manager)):
+    supabase = get_supabase()
+    rows = (
+        supabase.table("inspections")
+        .select(QUEUE_COLUMNS)
+        .eq("status", "submitted")
+        .order("submitted_at", desc=True)
+        .execute()
+        .data
+        or []
+    )
+    for row in rows:
+        review_shape(row)
+        findings = row.pop("findings", None) or []
+        row["finding_count"] = len(findings)
+        row["highest_finding_severity"] = highest_severity(findings)
+        row["photo_count"] = len(row.pop("photos", None) or [])
+        row["reviewed"] = row.get("severity") is not None
+    return rows
+
+
+@router.get("/{inspection_id}/review")
+def get_review(inspection_id: str, reviewer: dict = Depends(require_review_reader)):
+    supabase = get_supabase()
+    rows = supabase.table("inspections").select(REVIEW_COLUMNS).eq("id", inspection_id).execute().data
+    if not rows:
+        raise HTTPException(status_code=404, detail="Inspection not found")
+    inspection = review_shape(rows[0])
+    photos = (
+        supabase.table("photos")
+        .select("id, url, description, created_at")
+        .eq("inspection_id", inspection_id)
+        .order("created_at")
+        .execute()
+        .data
+        or []
+    )
+    findings = (
+        supabase.table("findings")
+        .select("id, photo_id, defect_type, severity, confidence, location_description, notes")
+        .eq("inspection_id", inspection_id)
+        .execute()
+        .data
+        or []
+    )
+    return {
+        "inspection":               inspection,
+        "complaint":                complaint_snapshot(supabase, inspection_id),
+        "photos":                   photos,
+        "findings":                 findings,
+        "highest_finding_severity": highest_severity(findings),
+        "can_review":               has_any_role(reviewer, "facility_manager") and inspection["status"] == "submitted" and not inspection.get("severity"),
+    }
+
+
+@router.post("/{inspection_id}/review")
+def review_inspection(inspection_id: str, body: ReviewBody, reviewer: dict = Depends(require_facility_manager)):
+    return apply_review(get_supabase(), inspection_id, reviewer, body.severity, body.note)
+
+
 @router.get("/{inspection_id}")
 def get_inspection(inspection_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
@@ -142,6 +236,8 @@ def update_inspection(inspection_id: str, body: InspectionUpdate, current_user: 
 def delete_inspection(inspection_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
     assert_owner(supabase, inspection_id, current_user)
+    if supabase.table("repair_jobs").select("id").eq("inspection_id", inspection_id).execute().data:
+        raise HTTPException(status_code=409, detail="This inspection has a repair job and cannot be deleted")
 
     release_complaint(supabase, inspection_id)
 
@@ -184,7 +280,7 @@ def submit_inspection(inspection_id: str, current_user: dict = Depends(get_curre
     }).eq("id", inspection_id).execute()
     sync_complaint(inspection_id, current_user, started=True)
     if existing.get("status") != "submitted":
-        notify_complaint_submitted(inspection_id, current_user)
+        notify_inspection_submitted(inspection_id, current_user)
     return result.data[0]
 
 

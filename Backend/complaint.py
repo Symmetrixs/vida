@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from supabase import create_client, Client
 
+from ai_detection import count_labels, scan_image_bytes
 from auth import active_user_with_role, has_any_role, require_roles, users_with_roles
 from public import COMPLAINT_BUCKET, format_inspection_reference, format_reference
 
@@ -36,8 +37,8 @@ require_manager = require_roles("facility_manager")
 require_review_reader = require_roles("facility_manager", "admin")
 
 
-def review_link(complaint_id: str) -> str:
-    return f"/complaints/{complaint_id}/review"
+def review_link(inspection_id: str) -> str:
+    return f"/inspections/{inspection_id}/review"
 
 
 class ConvertBody(BaseModel):
@@ -245,28 +246,23 @@ def complaint_snapshot(supabase: Client, inspection_id: str) -> Optional[dict]:
     }
 
 
-def notify_complaint_submitted(inspection_id: str, actor: dict) -> int:
+def notify_inspection_submitted(inspection_id: str, actor: dict) -> int:
     try:
         supabase = get_supabase()
-        rows = (
-            supabase.table("complaints")
-            .select("id, ref_no")
-            .eq("inspection_id", inspection_id)
-            .in_("status", list(TRACKED_STATUSES))
-            .execute()
-            .data
-        )
-        if not rows:
+        inspections = supabase.table("inspections").select("id, ref_no").eq("id", inspection_id).execute().data
+        if not inspections:
             return 0
-        complaint = rows[0]
-        reference = format_reference(complaint["ref_no"])
+        subject = f"inspection {format_inspection_reference(inspections[0]['ref_no'])}"
+        complaints = supabase.table("complaints").select("ref_no").eq("inspection_id", inspection_id).execute().data or []
+        if complaints:
+            subject += f" for public complaint {format_reference(complaints[0]['ref_no'])}"
         now = datetime.now(timezone.utc).isoformat()
         notes = [{
             "user_id":    u["id"],
-            "title":      "Complaint inspection submitted",
-            "message":    f"{actor.get('name') or 'An inspector'} submitted the inspection for public complaint {reference}. Review it and set the severity.",
+            "title":      "Inspection submitted",
+            "message":    f"{actor.get('name') or 'An inspector'} submitted {subject}. Review it and set the severity.",
             "type":       "info",
-            "link":       review_link(complaint["id"]),
+            "link":       review_link(inspection_id),
             "is_read":    False,
             "created_at": now,
         } for u in users_with_roles(supabase, ("facility_manager",))]
@@ -274,28 +270,75 @@ def notify_complaint_submitted(inspection_id: str, actor: dict) -> int:
             supabase.table("notifications").insert(notes).execute()
         return len(notes)
     except Exception as e:
-        print(f"[VIDA] complaint submit notification failed for inspection {inspection_id}: {e}")
+        print(f"[VIDA] submit notification failed for inspection {inspection_id}: {e}")
         return 0
 
 
-def _notify_reviewed(supabase: Client, complaint: dict, assessor: dict, now: str) -> int:
-    reference = format_reference(complaint["ref_no"])
-    note = complaint.get("severity_note")
-    message = f"{assessor.get('name') or 'A facility manager'} reviewed public complaint {reference}: severity {complaint['severity'].upper()}."
-    if note:
-        message += f" Note: {note}"
+def _notify_reviewed(supabase: Client, inspection: dict, complaint: Optional[dict], assessor: dict) -> int:
+    subject = f"inspection {format_inspection_reference(inspection['ref_no'])}"
+    if complaint:
+        subject += f" for public complaint {format_reference(complaint['ref_no'])}"
+    message = f"{assessor.get('name') or 'A facility manager'} reviewed {subject}: severity {inspection['severity'].upper()}."
+    if inspection.get("severity_note"):
+        message += f" Note: {inspection['severity_note']}"
     notes = [{
         "user_id":    u["id"],
         "title":      "Inspection reviewed",
         "message":    message,
-        "type":       "warning" if complaint["severity"] in ("high", "critical") else "info",
-        "link":       review_link(complaint["id"]),
+        "type":       "warning" if inspection["severity"] in ("high", "critical") else "info",
+        "link":       review_link(inspection["id"]),
         "is_read":    False,
-        "created_at": now,
+        "created_at": inspection["assessed_at"],
     } for u in users_with_roles(supabase, ("admin",))]
     if notes:
         supabase.table("notifications").insert(notes).execute()
     return len(notes)
+
+
+def apply_review(supabase: Client, inspection_id: str, reviewer: dict, severity: str, note: Optional[str]) -> dict:
+    fields = {
+        "severity":      severity,
+        "severity_note": (note or "").strip() or None,
+        "assessed_by":   reviewer["id"],
+        "assessed_at":   datetime.now(timezone.utc).isoformat(),
+    }
+    updated = (
+        supabase.table("inspections")
+        .update(fields)
+        .eq("id", inspection_id)
+        .eq("status", "submitted")
+        .is_("severity", "null")
+        .execute()
+        .data
+    )
+    if not updated:
+        rows = supabase.table("inspections").select("id, status, severity").eq("id", inspection_id).execute().data
+        if not rows:
+            raise HTTPException(status_code=404, detail="Inspection not found")
+        if rows[0].get("severity"):
+            raise HTTPException(status_code=409, detail="This inspection has already been reviewed")
+        raise HTTPException(status_code=409, detail="Only submitted inspections can be reviewed")
+    inspection = {**updated[0], **fields, "id": inspection_id}
+    complaints = (
+        supabase.table("complaints")
+        .update({"status": "reviewed", **fields})
+        .eq("inspection_id", inspection_id)
+        .in_("status", ["assigned", "in_progress", "submitted"])
+        .execute()
+        .data
+        or []
+    )
+    complaint = complaints[0] if complaints else None
+    try:
+        _notify_reviewed(supabase, inspection, complaint, reviewer)
+    except Exception as e:
+        print(f"[VIDA] review notification failed for inspection {inspection_id}: {e}")
+    return {
+        "reference":           format_inspection_reference(inspection["ref_no"]) if inspection.get("ref_no") else None,
+        "complaint_reference": format_reference(complaint["ref_no"]) if complaint else None,
+        "status":              "reviewed",
+        "severity":            severity,
+    }
 
 
 def release_complaint(supabase: Client, inspection_id: str) -> None:
@@ -413,19 +456,49 @@ def get_review(complaint_id: str, reviewer: dict = Depends(require_review_reader
 @router.post("/{complaint_id}/review")
 def review_complaint(complaint_id: str, body: ReviewBody, reviewer: dict = Depends(require_manager)):
     supabase = get_supabase()
-    now = datetime.now(timezone.utc).isoformat()
-    complaint = _transition(supabase, complaint_id, "submitted", {
-        "status":        "reviewed",
-        "severity":      body.severity,
-        "severity_note": (body.note or "").strip() or None,
-        "assessed_by":   reviewer["id"],
-        "assessed_at":   now,
-    })
-    try:
-        _notify_reviewed(supabase, complaint, reviewer, now)
-    except Exception as e:
-        print(f"[VIDA] review notification failed for complaint {complaint_id}: {e}")
-    return {"reference": format_reference(complaint["ref_no"]), "status": "reviewed", "severity": complaint["severity"]}
+    rows = supabase.table("complaints").select("id, ref_no, status, inspection_id").eq("id", complaint_id).execute().data
+    if not rows:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+    complaint = rows[0]
+    if complaint["status"] != "submitted" or not complaint.get("inspection_id"):
+        raise HTTPException(status_code=409, detail="This complaint has already been handled")
+    apply_review(supabase, complaint["inspection_id"], reviewer, body.severity, body.note)
+    return {"reference": format_reference(complaint["ref_no"]), "status": "reviewed", "severity": body.severity}
+
+
+@router.post("/{complaint_id}/scan")
+def scan_complaint_photos(complaint_id: str, reviewer: dict = Depends(require_manager)):
+    supabase = get_supabase()
+    photos = (
+        supabase.table("complaint_photos")
+        .select("id, storage_path, detections, scanned_at")
+        .eq("complaint_id", complaint_id)
+        .order("created_at")
+        .execute()
+        .data
+        or []
+    )
+    bucket = supabase.storage.from_(COMPLAINT_BUCKET)
+    results = []
+    for photo in photos:
+        detections = photo.get("detections") if photo.get("scanned_at") else None
+        if not photo.get("scanned_at"):
+            try:
+                detections = scan_image_bytes(bucket.download(photo["storage_path"]))
+                supabase.table("complaint_photos").update({
+                    "detections": detections,
+                    "scanned_at": datetime.now(timezone.utc).isoformat(),
+                }).eq("id", photo["id"]).execute()
+            except Exception as e:
+                print(f"[VIDA] complaint photo scan failed for {photo['id']}: {e}")
+                detections = None
+        results.append({
+            "id":      photo["id"],
+            "scanned": detections is not None,
+            "total":   len(detections or []),
+            "counts":  count_labels(detections),
+        })
+    return results
 
 
 @router.post("/{complaint_id}/convert")

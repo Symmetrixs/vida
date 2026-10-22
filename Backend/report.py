@@ -2,6 +2,7 @@ import os
 from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
+from postgrest.exceptions import APIError
 from pydantic import BaseModel
 from supabase import create_client, Client
 from auth import MANAGER_ROLES, get_current_user, has_any_role, require_roles, users_with_roles
@@ -19,6 +20,18 @@ require_manager = require_roles(*MANAGER_ROLES)
 
 def get_supabase() -> Client:
     return create_client(os.getenv("SUPABASE_URL", ""), os.getenv("SUPABASE_SERVICE_KEY", ""))
+
+
+def _load_report(supabase: Client, report_id: str, columns: str = "*") -> dict:
+    try:
+        rows = supabase.table("reports").select(columns).eq("id", report_id).execute().data
+    except APIError as e:
+        if e.code != "22P02":
+            raise
+        rows = None
+    if not rows:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return rows[0]
 
 
 def _is_locked(created_at_str: str) -> bool:
@@ -177,16 +190,7 @@ def share_report(body: ShareReportBody, current_user: dict = Depends(require_ins
 @router.get("/{report_id}")
 def get_report(report_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    result = (
-        supabase.table("reports")
-        .select("*, inspections(*, buildings(*)), users!created_by(name)")
-        .eq("id", report_id)
-        .single()
-        .execute()
-    )
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Report not found")
-    report = result.data
+    report = _load_report(supabase, report_id, "*, inspections(*, buildings(*)), users!created_by(name)")
     _assert_can_view(supabase, report, current_user)
     report["is_mine"] = report.get("created_by") == current_user["id"]
     return _shape(report)
@@ -195,10 +199,8 @@ def get_report(report_id: str, current_user: dict = Depends(get_current_user)):
 @router.put("/{report_id}")
 def update_report(report_id: str, body: ReportUpdate, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    existing = supabase.table("reports").select("*").eq("id", report_id).single().execute()
-    if not existing.data:
-        raise HTTPException(status_code=404, detail="Report not found")
-    _assert_can_edit(existing.data, current_user)
+    existing = _load_report(supabase, report_id)
+    _assert_can_edit(existing, current_user)
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
     if "row_data" in body.model_dump() and body.row_data is not None:
         updates["row_data"] = body.row_data
@@ -210,10 +212,8 @@ def update_report(report_id: str, body: ReportUpdate, current_user: dict = Depen
 @router.delete("/{report_id}")
 def delete_report(report_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    existing = supabase.table("reports").select("created_by").eq("id", report_id).single().execute()
-    if not existing.data:
-        raise HTTPException(status_code=404, detail="Report not found")
-    if existing.data.get("created_by") != current_user["id"]:
+    existing = _load_report(supabase, report_id, "created_by")
+    if existing.get("created_by") != current_user["id"]:
         raise HTTPException(status_code=403, detail="Not authorised")
     supabase.table("shared_reports").delete().eq("report_id", report_id).execute()
     supabase.table("reports").delete().eq("id", report_id).execute()
@@ -223,10 +223,8 @@ def delete_report(report_id: str, current_user: dict = Depends(get_current_user)
 @router.post("/{report_id}/publish")
 def publish_report(report_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    existing = supabase.table("reports").select("*").eq("id", report_id).single().execute()
-    if not existing.data:
-        raise HTTPException(status_code=404, detail="Report not found")
-    _assert_can_edit(existing.data, current_user)
+    existing = _load_report(supabase, report_id)
+    _assert_can_edit(existing, current_user)
     result = supabase.table("reports").update({
         "status":       "published",
         "published_at": datetime.now(timezone.utc).isoformat(),
@@ -237,10 +235,7 @@ def publish_report(report_id: str, current_user: dict = Depends(get_current_user
 @router.get("/{report_id}/export")
 def export_report_data(report_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    report_res = supabase.table("reports").select("*").eq("id", report_id).single().execute()
-    if not report_res.data:
-        raise HTTPException(status_code=404, detail="Report not found")
-    report = report_res.data
+    report = _load_report(supabase, report_id)
     _assert_can_view(supabase, report, current_user)
     inspection = supabase.table("inspections").select("*, buildings(*)").eq("id", report["inspection_id"]).single().execute().data or {}
     findings   = supabase.table("findings").select("*").eq("inspection_id", report["inspection_id"]).execute().data or []

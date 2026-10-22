@@ -3,7 +3,7 @@ import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Home, Bell, User, Settings, LogOut, X, ClipboardList, ClipboardCheck, FileText, Share2,
-  Inbox, ShieldAlert, Files, BarChart3, Users, Building2,
+  Inbox, ShieldAlert, Files, BarChart3, Users, Building2, LayoutGrid, Hand, Hammer, Scale, HardHat,
 } from "lucide-react";
 import TopNavBar from "./TopNavBar.jsx";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -30,12 +30,24 @@ const SECTIONS = [
     ],
   },
   {
+    title: "Maintenance",
+    role: "maintenance",
+    links: [
+      { to: "/jobs/board",    label: "Job Board",       icon: LayoutGrid },
+      { to: "/jobs/assigned", label: "Assigned Jobs",   icon: ClipboardCheck },
+      { to: "/jobs/claimed",  label: "My Claimed Jobs", icon: Hand },
+    ],
+  },
+  {
     title: "Facility Manager",
     role: "facility_manager",
     links: [
-      { to: "/complaints",      label: "Complaints",      icon: Inbox },
-      { to: "/severity-review", label: "Severity Review", icon: ShieldAlert },
-      { to: "/all-reports",     label: "All Reports",     icon: Files },
+      { to: "/complaints",        label: "Complaints",        icon: Inbox },
+      { to: "/severity-review",   label: "Severity Review",   icon: ShieldAlert },
+      { to: "/repair-assignment", label: "Repair Assignment", icon: Hammer },
+      { to: "/repair-review",     label: "Repair Review",     icon: Scale },
+      { to: "/maintenance-staff", label: "Staff",             icon: HardHat },
+      { to: "/all-reports",       label: "All Reports",       icon: Files },
     ],
   },
   {

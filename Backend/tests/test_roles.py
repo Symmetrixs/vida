@@ -174,17 +174,17 @@ def test_my_reports_and_all_reports(client, login, monkeypatch):
 def test_report_visibility_and_editing(client, login, monkeypatch):
     row = {"id": "r1", "created_by": "insp-a", "created_at": datetime.now(timezone.utc).isoformat(), "inspection_id": "i1", "status": "draft"}
 
-    _use(monkeypatch, report, {("reports", "select"): row, ("shared_reports", "select"): []})
+    _use(monkeypatch, report, {("reports", "select"): [row], ("shared_reports", "select"): []})
     for user, expected in ((INSPECTOR, 200), (FM, 200), (ADMIN, 200), (OTHER, 403)):
         login(user)
         assert client.get("/reports/r1").status_code == expected
 
-    _use(monkeypatch, report, {("reports", "select"): row, ("shared_reports", "select"): [{"id": "s1"}]})
+    _use(monkeypatch, report, {("reports", "select"): [row], ("shared_reports", "select"): [{"id": "s1"}]})
     login(OTHER)
     response = client.get("/reports/r1")
     assert response.status_code == 200 and response.json()["is_mine"] is False
 
-    _use(monkeypatch, report, {("reports", "select"): row, ("reports", "update"): [row]})
+    _use(monkeypatch, report, {("reports", "select"): [row], ("reports", "update"): [row]})
     for user in (ADMIN, FM, OTHER):
         login(user)
         assert client.put("/reports/r1", json={"title": "x"}).status_code == 403
@@ -194,7 +194,7 @@ def test_report_visibility_and_editing(client, login, monkeypatch):
     assert client.put("/reports/r1", json={"title": "x"}).status_code == 200
 
     old = dict(row, created_at=(datetime.now(timezone.utc) - timedelta(days=5)).isoformat())
-    _use(monkeypatch, report, {("reports", "select"): old})
+    _use(monkeypatch, report, {("reports", "select"): [old]})
     assert client.put("/reports/r1", json={"title": "x"}).status_code == 403
 
 

@@ -90,25 +90,29 @@ def test_review_validates_input(client, login, monkeypatch, payload):
 
 
 def test_review_only_while_submitted(client, login, monkeypatch):
-    db = FakeSupabase(responses={("complaints", "update"): [], ("complaints", "select"): [{"id": "c1"}]})
+    db = FakeSupabase(responses={("complaints", "select"): [{"id": "c1", "ref_no": 21, "status": "reviewed", "inspection_id": "insp1"}]})
     monkeypatch.setattr(complaint, "get_supabase", lambda: db)
     login(FM)
-    response = client.post("/complaints/c1/review", json={"severity": "low"})
-    assert response.status_code == 409
-    assert db.updated[0][2] == {"id": "c1", "status": "submitted"}
+    assert client.post("/complaints/c1/review", json={"severity": "low"}).status_code == 409
+    assert db.updated == []
 
-    missing = FakeSupabase(responses={("complaints", "update"): [], ("complaints", "select"): []})
+    missing = FakeSupabase(responses={("complaints", "select"): []})
     monkeypatch.setattr(complaint, "get_supabase", lambda: missing)
     assert client.post("/complaints/c1/review", json={"severity": "low"}).status_code == 404
 
 
-def test_review_sets_severity_and_notifies_active_admins(client, login, monkeypatch):
-    reviewed_row = {"id": "c1", "ref_no": 21, "status": "reviewed", "severity": "high", "severity_note": "Close the corridor until repaired."}
-    db = FakeSupabase(responses={
-        ("complaints", "update"): [reviewed_row],
+def _reviewed_db(severity, note):
+    return FakeSupabase(responses={
+        ("complaints", "select"): [{"id": "c1", "ref_no": 21, "status": "submitted", "inspection_id": "insp1"}],
+        ("inspections", "update"): [{"id": "insp1", "ref_no": 3}],
+        ("complaints", "update"): [{"id": "c1", "ref_no": 21, "status": "reviewed"}],
         ("user_roles", "select"): [{"user_id": "admin1"}, {"user_id": "admin2"}],
         ("users", "select"): [{"id": "admin1"}, {"id": "admin2"}],
     })
+
+
+def test_review_writes_severity_to_the_inspection_and_complaint_and_notifies_admins(client, login, monkeypatch):
+    db = _reviewed_db("high", "Close the corridor until repaired.")
     monkeypatch.setattr(complaint, "get_supabase", lambda: db)
     login(FM)
     response = client.post("/complaints/c1/review", json={"severity": "high", "note": "  Close the corridor until repaired.  "})
@@ -116,26 +120,25 @@ def test_review_sets_severity_and_notifies_active_admins(client, login, monkeypa
     assert response.json() == {"reference": "VIDA-C-0021", "status": "reviewed", "severity": "high"}
 
     table, payload, filters = db.updated[0]
-    assert filters == {"id": "c1", "status": "submitted"}
-    assert payload["status"] == "reviewed" and payload["severity"] == "high"
-    assert payload["severity_note"] == "Close the corridor until repaired."
+    assert table == "inspections" and filters == {"id": "insp1", "status": "submitted"}
+    assert payload["severity"] == "high" and payload["severity_note"] == "Close the corridor until repaired."
     assert payload["assessed_by"] == "fm1" and payload["assessed_at"]
+
+    table, payload, filters = db.updated[1]
+    assert table == "complaints" and filters == {"inspection_id": "insp1"}
+    assert payload["status"] == "reviewed" and payload["severity"] == "high"
 
     notes = db.inserted["notifications"]
     assert {n["user_id"] for n in notes} == {"admin1", "admin2"}
     note = notes[0]
     assert note["title"] == "Inspection reviewed" and note["type"] == "warning"
-    assert note["link"] == "/complaints/c1/review"
-    assert "Farah Manager" in note["message"] and "VIDA-C-0021" in note["message"]
+    assert note["link"] == "/inspections/insp1/review"
+    assert "Farah Manager" in note["message"] and "VIDA-I-0003" in note["message"] and "VIDA-C-0021" in note["message"]
     assert "severity HIGH" in note["message"] and "Close the corridor until repaired." in note["message"]
 
 
 def test_review_note_is_optional_and_low_severity_is_info(client, login, monkeypatch):
-    db = FakeSupabase(responses={
-        ("complaints", "update"): [{"id": "c1", "ref_no": 21, "status": "reviewed", "severity": "low", "severity_note": None}],
-        ("user_roles", "select"): [{"user_id": "admin1"}],
-        ("users", "select"): [{"id": "admin1"}],
-    })
+    db = _reviewed_db("low", None)
     monkeypatch.setattr(complaint, "get_supabase", lambda: db)
     login(FM)
     assert client.post("/complaints/c1/review", json={"severity": "low", "note": "   "}).status_code == 200

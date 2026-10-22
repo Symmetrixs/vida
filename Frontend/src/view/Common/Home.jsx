@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ClipboardList, ClipboardCheck, ShieldAlert, Inbox, Users, Building2, FileText, BarChart3, Wrench, Plus, ArrowRight } from "lucide-react";
+import { ClipboardList, ClipboardCheck, ShieldAlert, Inbox, Users, Building2, FileText, BarChart3, Wrench, Plus, ArrowRight, LayoutGrid, Hammer, Scale, Hand } from "lucide-react";
 import api from "../../api/axios.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { OPEN_STATUSES } from "../../utils/complaintUi.js";
@@ -72,27 +72,35 @@ function InspectorCard({ delay }) {
 
 function FacilityManagerCard({ delay }) {
   const [complaints, setComplaints] = useState(null);
+  const [queue, setQueue] = useState(null);
+  const [candidates, setCandidates] = useState(null);
+  const [jobs, setJobs] = useState(null);
 
   useEffect(() => {
     api.get("/complaints/").then(r => setComplaints(r.data)).catch(() => setComplaints([]));
+    api.get("/inspections/review-queue").then(r => setQueue(r.data)).catch(() => setQueue([]));
+    api.get("/repairs/candidates").then(r => setCandidates(r.data)).catch(() => setCandidates([]));
+    api.get("/repairs/").then(r => setJobs(r.data)).catch(() => setJobs([]));
   }, []);
 
-  const count = (status) => complaints?.filter(c => c.status === status).length;
-  const overdue = complaints?.filter(c => c.is_overdue).length;
+  const overdueJobs = jobs?.filter(j => j.is_overdue).length;
 
   return (
     <RoleCard
       icon={Inbox} title="Facility Manager" color="bg-vida-accent" delay={delay}
       stats={[
-        { label: "New complaints", value: count("pending") },
-        { label: "Awaiting review", value: count("submitted") },
-        { label: "In progress", value: complaints ? count("assigned") + count("in_progress") : null },
-        { label: "Overdue", value: overdue, alert: overdue > 0 },
+        { label: "New complaints", value: complaints?.filter(c => c.status === "pending").length },
+        { label: "Severity to set", value: queue?.filter(q => !q.reviewed).length },
+        { label: "Ready for repair", value: candidates?.length },
+        { label: "Repairs to review", value: jobs?.filter(j => j.status === "awaiting_review").length },
+        { label: "Repairs in progress", value: jobs?.filter(j => j.status === "in_progress").length },
+        { label: "Overdue repairs", value: overdueJobs, alert: overdueJobs > 0 },
       ]}
       actions={[
         { to: "/complaints", label: "Complaints", icon: Inbox, primary: true },
         { to: "/severity-review", label: "Severity Review", icon: ShieldAlert },
-        { to: "/all-reports", label: "All Reports" },
+        { to: "/repair-assignment", label: "Repair Assignment", icon: Hammer },
+        { to: "/repair-review", label: "Repair Review", icon: Scale },
       ]}
     />
   );
@@ -125,10 +133,34 @@ function AdminCard({ delay }) {
 }
 
 function MaintenanceCard({ delay }) {
+  const [board, setBoard] = useState(null);
+  const [assigned, setAssigned] = useState(null);
+  const [claimed, setClaimed] = useState(null);
+
+  useEffect(() => {
+    api.get("/repairs/board").then(r => setBoard(r.data)).catch(() => setBoard([]));
+    api.get("/repairs/mine?type=assigned").then(r => setAssigned(r.data)).catch(() => setAssigned([]));
+    api.get("/repairs/mine?type=claimed").then(r => setClaimed(r.data)).catch(() => setClaimed([]));
+  }, []);
+
+  const working = (list) => list?.filter(j => j.status === "in_progress");
+  const mine = assigned && claimed ? [...assigned, ...claimed] : null;
+  const overdue = mine?.filter(j => j.is_overdue).length;
+
   return (
     <RoleCard
       icon={Wrench} title="Maintenance" color="bg-amber-500" delay={delay}
-      note="Repair tasks assigned to you will appear here once repair tracking is switched on."
+      stats={[
+        { label: "Open on Job Board", value: board?.length },
+        { label: "Assigned to me", value: working(assigned)?.length },
+        { label: "Claimed by me", value: working(claimed)?.length },
+        { label: "Overdue", value: overdue, alert: overdue > 0 },
+      ]}
+      actions={[
+        { to: "/jobs/board", label: "Job Board", icon: LayoutGrid, primary: true },
+        { to: "/jobs/assigned", label: "Assigned Jobs", icon: ClipboardCheck },
+        { to: "/jobs/claimed", label: "My Claimed Jobs", icon: Hand },
+      ]}
     />
   );
 }

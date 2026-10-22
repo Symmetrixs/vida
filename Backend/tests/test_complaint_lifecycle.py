@@ -154,7 +154,7 @@ def test_convert_refuses_past_due_date(client, login, monkeypatch):
 def test_only_the_owning_inspector_can_submit_or_create_report(client, login, monkeypatch):
     calls = []
     monkeypatch.setattr(inspection, "sync_complaint", lambda *a, **k: calls.append("inspection"))
-    monkeypatch.setattr(inspection, "notify_complaint_submitted", lambda *a, **k: 0)
+    monkeypatch.setattr(inspection, "notify_inspection_submitted", lambda *a, **k: 0)
     monkeypatch.setattr(inspection, "get_supabase", lambda: FakeSupabase(responses={
         ("inspections", "select"): [{"inspector_id": "owner"}],
         ("inspections", "update"): [{"id": "insp1", "status": "submitted"}],
@@ -226,7 +226,7 @@ def test_inspection_endpoints_update_the_complaint_and_reports_do_not(client, lo
     use(group, owned)
     assert client.post("/groups/insp1/save", json={"groups": []}).status_code == 200
 
-    use(report, {("inspections", "select"): [{"id": "insp1", "status": "draft", "inspector_id": "owner"}], ("reports", "select"): report_row, ("reports", "update"): [report_row]})
+    use(report, {("inspections", "select"): [{"id": "insp1", "status": "draft", "inspector_id": "owner"}], ("reports", "select"): [report_row], ("reports", "update"): [report_row]})
     assert client.post("/reports/", json={"inspection_id": "insp1", "title": "Report"}).status_code == 201
     assert client.put("/reports/r1", json={"status": "published"}).status_code == 200
     assert client.post("/reports/r1/publish").status_code == 200

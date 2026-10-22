@@ -56,6 +56,9 @@ class FakeBucket:
         for path in paths:
             self.db.uploads.pop((self.name, path), None)
 
+    def download(self, path):
+        return self.db.uploads.get((self.name, path), b"image")
+
     def get_public_url(self, path):
         return f"https://storage.test/{self.name}/{path}"
 
@@ -93,7 +96,8 @@ class FakeSupabase:
         if query.op == "update":
             self.updated.append((query.table, query.payload, dict(query.filters)))
         if key in self.responses:
-            return FakeResult(self.responses[key])
+            response = self.responses[key]
+            return FakeResult(response(query) if callable(response) else response)
         if key == ("complaints", "select"):
             return FakeResult([], count=self.recent)
         if key == ("buildings", "select"):

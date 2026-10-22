@@ -62,40 +62,50 @@ def test_complaint_box_endpoint_permissions(client, login, monkeypatch):
 
 def test_submit_notifies_active_facility_managers_to_review(monkeypatch):
     db = FakeSupabase(responses={
-        ("complaints", "select"): [{"id": "c1", "ref_no": 12}],
+        ("inspections", "select"): [{"id": "insp1", "ref_no": 5}],
+        ("complaints", "select"): [{"ref_no": 12}],
         ("user_roles", "select"): [{"user_id": "fm1"}, {"user_id": "fm2"}, {"user_id": "fm-inactive"}],
         ("users", "select"): [{"id": "fm1"}, {"id": "fm2"}],
     })
     monkeypatch.setattr(complaint, "get_supabase", lambda: db)
-    assert complaint.notify_complaint_submitted("insp1", OWNER) == 2
+    assert complaint.notify_inspection_submitted("insp1", OWNER) == 2
     notes = {n["user_id"]: n for n in db.inserted["notifications"]}
     assert set(notes) == {"fm1", "fm2"}
-    assert all(n["link"] == "/complaints/c1/review" for n in notes.values())
+    assert all(n["link"] == "/inspections/insp1/review" for n in notes.values())
     message = notes["fm1"]["message"]
-    assert "Owner Inspector" in message and "VIDA-C-0012" in message and "set the severity" in message
+    assert "Owner Inspector" in message and "VIDA-I-0005" in message and "VIDA-C-0012" in message and "set the severity" in message
     assert "progress" not in message and "report" not in message and "resolved" not in message
     users_query = next(q for q in db.queries if q.table == "users")
     assert users_query.filters.get("is_active") is True
 
 
-def test_submit_notification_skips_normal_inspections_and_never_raises(monkeypatch):
-    db = FakeSupabase(responses={("complaints", "select"): []})
+def test_submit_notifies_for_normal_inspections_and_never_raises(monkeypatch):
+    db = FakeSupabase(responses={
+        ("inspections", "select"): [{"id": "insp1", "ref_no": 7}],
+        ("complaints", "select"): [],
+        ("user_roles", "select"): [{"user_id": "fm1"}],
+        ("users", "select"): [{"id": "fm1"}],
+    })
     monkeypatch.setattr(complaint, "get_supabase", lambda: db)
-    assert complaint.notify_complaint_submitted("insp1", OWNER) == 0
-    assert "notifications" not in db.inserted
+    assert complaint.notify_inspection_submitted("insp1", OWNER) == 1
+    message = db.inserted["notifications"][0]["message"]
+    assert "VIDA-I-0007" in message and "complaint" not in message
+
+    monkeypatch.setattr(complaint, "get_supabase", lambda: FakeSupabase(responses={("inspections", "select"): []}))
+    assert complaint.notify_inspection_submitted("missing", OWNER) == 0
 
     def broken():
         raise RuntimeError("database down")
 
     monkeypatch.setattr(complaint, "get_supabase", broken)
-    assert complaint.notify_complaint_submitted("insp1", OWNER) == 0
+    assert complaint.notify_inspection_submitted("insp1", OWNER) == 0
 
 
 @pytest.mark.parametrize("previous_status, expected_calls", [("draft", 1), ("submitted", 0)])
 def test_submit_notifies_only_on_first_submit(client, login, monkeypatch, previous_status, expected_calls):
     calls = []
     monkeypatch.setattr(inspection, "sync_complaint", lambda *a, **k: None)
-    monkeypatch.setattr(inspection, "notify_complaint_submitted", lambda inspection_id, actor: calls.append(inspection_id))
+    monkeypatch.setattr(inspection, "notify_inspection_submitted", lambda inspection_id, actor: calls.append(inspection_id))
     monkeypatch.setattr(inspection, "get_supabase", lambda: FakeSupabase(responses={
         ("inspections", "select"): [{"inspector_id": "owner", "status": previous_status}],
         ("inspections", "update"): [{"id": "insp1", "status": "submitted"}],

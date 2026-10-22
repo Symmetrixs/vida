@@ -26,17 +26,28 @@ import ReportManagement     from "./view/Inspector/ReportManagement.jsx";
 import ReportView           from "./view/Inspector/ReportView.jsx";
 import TeamSharedReport     from "./view/Inspector/TeamSharedReport.jsx";
 
-import Complaints      from "./view/Admin/Complaints.jsx";
-import ComplaintReview from "./view/Admin/ComplaintReview.jsx";
+import RepairJob       from "./view/Common/RepairJob.jsx";
+
+import JobList         from "./view/Maintenance/JobList.jsx";
+
+import Complaints        from "./view/Admin/Complaints.jsx";
+import ComplaintReview   from "./view/Admin/ComplaintReview.jsx";
+import SeverityReview    from "./view/Admin/SeverityReview.jsx";
+import InspectionReview  from "./view/Admin/InspectionReview.jsx";
+import RepairAssignment  from "./view/Admin/RepairAssignment.jsx";
+import RepairReview      from "./view/Admin/RepairReview.jsx";
+import MaintenanceStaff  from "./view/Admin/MaintenanceStaff.jsx";
 import AllReports      from "./view/Admin/Reports.jsx";
 import Analytics       from "./view/Admin/Analytics.jsx";
 import StaffAccounts   from "./view/Admin/StaffAccounts.jsx";
 import Buildings       from "./view/Admin/Vessels.jsx";
 
 const INSPECTOR = ["inspector"];
+const MAINTENANCE = ["maintenance"];
 const FACILITY_MANAGER = ["facility_manager"];
 const ADMIN = ["admin"];
 const MANAGERS = ["facility_manager", "admin"];
+const JOB_VIEWERS = ["maintenance", "facility_manager", "admin"];
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -82,9 +93,18 @@ export default function App() {
           <Route path="reports/:id"            element={<ReportView />} />
           <Route path="shared"                 element={only(INSPECTOR, <TeamSharedReport />)} />
 
-          <Route path="complaints"             element={only(FACILITY_MANAGER, <Complaints mode="inbox" />)} />
-          <Route path="severity-review"        element={only(FACILITY_MANAGER, <Complaints mode="review" />)} />
+          <Route path="jobs/board"             element={only(MAINTENANCE, <JobList key="board" mode="board" />)} />
+          <Route path="jobs/assigned"          element={only(MAINTENANCE, <JobList key="assigned" mode="assigned" />)} />
+          <Route path="jobs/claimed"           element={only(MAINTENANCE, <JobList key="claimed" mode="claimed" />)} />
+          <Route path="jobs/:id"               element={only(JOB_VIEWERS, <RepairJob />)} />
+
+          <Route path="complaints"             element={only(FACILITY_MANAGER, <Complaints />)} />
+          <Route path="severity-review"        element={only(FACILITY_MANAGER, <SeverityReview />)} />
           <Route path="complaints/:id/review"  element={only(MANAGERS, <ComplaintReview />)} />
+          <Route path="inspections/:id/review" element={only(MANAGERS, <InspectionReview />)} />
+          <Route path="repair-assignment"      element={only(FACILITY_MANAGER, <RepairAssignment />)} />
+          <Route path="repair-review"          element={only(FACILITY_MANAGER, <RepairReview />)} />
+          <Route path="maintenance-staff"      element={only(FACILITY_MANAGER, <MaintenanceStaff />)} />
           <Route path="all-reports"            element={only(MANAGERS, <AllReports />)} />
 
           <Route path="statistics"             element={only(ADMIN, <Analytics />)} />
