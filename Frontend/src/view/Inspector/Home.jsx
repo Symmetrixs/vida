@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { ClipboardList, Building2, FileText, Plus, ArrowRight, AlertTriangle, CheckCircle, Clock, Inbox, CalendarClock } from "lucide-react";
 import api from "../../api/axios.js";
 import { useAuth } from "../../context/AuthContext.jsx";
+import { OPEN_STATUSES, STATUS_LABEL, STATUS_CLASS, SEVERITY_CLASS, fmtDay } from "../../utils/complaintUi.js";
 
 const QuickCard = ({ to, icon: Icon, label, color, delay }) => (
   <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay }}>
@@ -19,11 +20,8 @@ const QuickCard = ({ to, icon: Icon, label, color, delay }) => (
   </motion.div>
 );
 
-const TASK_BADGE = { assigned: "badge-gray", in_progress: "badge-blue", resolved: "badge-green" };
-const TASK_LABEL = { assigned: "assigned", in_progress: "in progress", resolved: "resolved" };
-const fmtDay = (d) => new Date(`${d}T00:00:00`).toLocaleDateString("en-MY", { dateStyle: "medium" });
-
 function TaskDue({ task }) {
+  const open = OPEN_STATUSES.includes(task.status);
   if (task.is_overdue) {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">
@@ -31,11 +29,11 @@ function TaskDue({ task }) {
       </span>
     );
   }
-  if (task.resolved_late) return <span className="text-[11px] font-medium text-red-600 dark:text-red-400">Resolved late</span>;
-  if (task.due_date && task.status !== "resolved") {
+  if (task.submitted_late) return <span className="text-[11px] font-medium text-red-600 dark:text-red-400">Submitted late</span>;
+  if (task.due_date && open) {
     return <span className="inline-flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400"><CalendarClock size={11}/> Due {fmtDay(task.due_date)}</span>;
   }
-  if (!task.due_date && task.status !== "resolved") return <span className="text-[11px] text-slate-400">No due date</span>;
+  if (!task.due_date && open) return <span className="text-[11px] text-slate-400">No due date</span>;
   return null;
 }
 
@@ -52,7 +50,7 @@ export default function Home() {
     api.get("/inspector/assigned-tasks").then(r => setTasks(r.data)).catch(() => {});
   }, []);
 
-  const openTasks = tasks.filter(t => t.status !== "resolved").length;
+  const openTasks = tasks.filter(t => OPEN_STATUSES.includes(t.status)).length;
 
   const statusIcon = (s) => ({ completed: <CheckCircle size={14} className="text-green-500"/>, submitted: <Clock size={14} className="text-blue-500"/>, draft: <AlertTriangle size={14} className="text-amber-500"/> }[s] || null);
 
@@ -92,7 +90,8 @@ export default function Home() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-mono text-sm font-semibold text-slate-800 dark:text-slate-200">{task.reference}</span>
-                    <span className={TASK_BADGE[task.status]}>{TASK_LABEL[task.status]}</span>
+                    <span className={STATUS_CLASS[task.status]}>{STATUS_LABEL[task.status]}</span>
+                    {task.severity && <span className={SEVERITY_CLASS[task.severity]}>{task.severity}</span>}
                     <TaskDue task={task}/>
                   </div>
                   <p className="text-xs text-slate-400 mt-0.5 truncate">{task.building?.name} · {task.floor} · {task.location_note}</p>

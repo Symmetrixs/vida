@@ -19,7 +19,7 @@ Last chat: 03
 
 ## Architecture notes
 - Auth is custom JWT (python-jose + bcrypt), not Supabase Auth. `auth.get_current_user` is the dependency every protected route uses; roles are `admin`, `facility_manager` and `inspector`. Admin and facility manager sign-ups need approval (`auth.APPROVAL_ROLES`).
-- `public.py` (mounted at `/public`) is the only unauthenticated router: public building list, captcha and complaint submission. It must never depend on `get_current_user` or call the AI model. `complaint.py` is the admin/facility manager inbox that converts complaints into draft inspections.
+- `public.py` (mounted at `/public`) is the only unauthenticated router: public building list, captcha and complaint submission. It must never depend on `get_current_user` or call the AI model. `complaint.py` is the admin/facility manager inbox that converts complaints into draft inspections. Complaint status flow: pending, assigned, in_progress, submitted (inspector submitted), reviewed (facility manager set one overall severity and note, admins notified), or rejected. `complaint.sync_complaint` derives the status from the inspection and is called from the inspection, photo, finding and group endpoints; reports never affect it.
 - Schema changes live in `Backend/migrations/*.sql` and are run by hand in the Supabase SQL editor.
 - The backend talks to Supabase with the service key (bypasses RLS), so authorization lives entirely in route code. The frontend never calls Supabase directly.
 - Photos go to Supabase Storage via the backend.

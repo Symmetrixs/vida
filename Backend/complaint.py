@@ -1,7 +1,7 @@
 import os
 import uuid
 from datetime import date, datetime, timedelta, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -17,18 +17,16 @@ REVIEWER_ROLES = ("admin", "facility_manager")
 SIGNED_URL_SECONDS = 600
 MYT = timezone(timedelta(hours=8))
 OPEN_STATUSES = ("assigned", "in_progress")
-TRACKED_STATUSES = ("assigned", "in_progress", "resolved")
+TRACKED_STATUSES = ("assigned", "in_progress", "submitted", "reviewed")
+SEVERITIES = ("low", "medium", "high", "critical")
 INSPECTION_EMBED = "inspections(id, title, status, inspector_id, users!inspector_id(name))"
-LIST_COLUMNS = (
-    "id, ref_no, building_id, floor, location_note, description, reporter_name, status, "
-    "reject_reason, inspection_id, reviewed_at, due_date, started_at, resolved_at, created_at, "
-    "buildings(name, code), complaint_photos(id), users!reviewed_by(name), " + INSPECTION_EMBED
+STATUS_COLUMNS = (
+    "status, reject_reason, inspection_id, reviewed_at, due_date, started_at, submitted_at, "
+    "severity, severity_note, assessed_at, created_at, "
+    "buildings(name, code), reviewer:users!reviewed_by(name), assessor:users!assessed_by(name), " + INSPECTION_EMBED
 )
-DETAIL_COLUMNS = (
-    "id, ref_no, building_id, floor, location_note, description, reporter_name, reporter_email, "
-    "reporter_phone, status, reject_reason, inspection_id, reviewed_at, due_date, started_at, "
-    "resolved_at, created_at, buildings(name, code), users!reviewed_by(name), " + INSPECTION_EMBED
-)
+LIST_COLUMNS = "id, ref_no, building_id, floor, location_note, description, reporter_name, complaint_photos(id), " + STATUS_COLUMNS
+DETAIL_COLUMNS = "id, ref_no, building_id, floor, location_note, description, reporter_name, reporter_email, reporter_phone, " + STATUS_COLUMNS
 
 
 def get_supabase() -> Client:
@@ -52,13 +50,18 @@ class RejectBody(BaseModel):
     reason: str = Field(min_length=5, max_length=500)
 
 
+class ReviewBody(BaseModel):
+    severity: Literal["low", "medium", "high", "critical"]
+    note: Optional[str] = Field(default=None, max_length=1000)
+
+
 def today_myt() -> date:
     return datetime.now(MYT).date()
 
 
-def derive_status(started: bool, inspection_status: Optional[str], has_published_report: bool) -> str:
-    if inspection_status == "submitted" and has_published_report:
-        return "resolved"
+def derive_status(started: bool, inspection_status: Optional[str]) -> str:
+    if inspection_status == "submitted":
+        return "submitted"
     if started:
         return "in_progress"
     return "assigned"
@@ -71,19 +74,20 @@ def overdue_info(status: str, due_date: Optional[str], today: Optional[date] = N
     return days > 0, max(days, 0)
 
 
-def resolved_late(due_date: Optional[str], resolved_at: Optional[str]) -> bool:
-    if not due_date or not resolved_at:
+def submitted_late(due_date: Optional[str], submitted_at: Optional[str]) -> bool:
+    if not due_date or not submitted_at:
         return False
-    resolved_day = datetime.fromisoformat(resolved_at.replace("Z", "+00:00")).astimezone(MYT).date()
-    return resolved_day > date.fromisoformat(due_date)
+    submitted_day = datetime.fromisoformat(submitted_at.replace("Z", "+00:00")).astimezone(MYT).date()
+    return submitted_day > date.fromisoformat(due_date)
 
 
 def _shape(row: dict) -> dict:
     row["reference"] = format_reference(row["ref_no"])
     row["photo_count"] = len(row.pop("complaint_photos", None) or [])
-    row["reviewer"] = (row.pop("users", None) or {}).get("name")
+    row["reviewer"] = (row.get("reviewer") or {}).get("name")
+    row["assessor"] = (row.get("assessor") or {}).get("name")
     row["is_overdue"], row["days_overdue"] = overdue_info(row["status"], row.get("due_date"))
-    row["resolved_late"] = row["status"] == "resolved" and resolved_late(row.get("due_date"), row.get("resolved_at"))
+    row["submitted_late"] = row["status"] in ("submitted", "reviewed") and submitted_late(row.get("due_date"), row.get("submitted_at"))
     inspection = row.pop("inspections", None)
     if inspection:
         inspector = inspection.pop("users", None) or {}
@@ -112,12 +116,12 @@ def _latest_reports(supabase: Client, inspection_ids: list) -> dict:
     return latest
 
 
-def _claim(supabase: Client, complaint_id: str, updates: dict) -> dict:
+def _transition(supabase: Client, complaint_id: str, from_status: str, updates: dict) -> dict:
     result = (
         supabase.table("complaints")
         .update(updates)
         .eq("id", complaint_id)
-        .eq("status", "pending")
+        .eq("status", from_status)
         .execute()
     )
     if result.data:
@@ -128,21 +132,17 @@ def _claim(supabase: Client, complaint_id: str, updates: dict) -> dict:
     raise HTTPException(status_code=409, detail="This complaint has already been handled")
 
 
-def _notify_resolved(supabase: Client, complaint: dict, now: str) -> None:
-    reviewer_id = complaint.get("reviewed_by")
-    if not reviewer_id:
-        return
-    reviewer = supabase.table("users").select("role").eq("id", reviewer_id).execute().data or []
-    base = "/admin" if reviewer and reviewer[0].get("role") == "admin" else "/inspector"
-    supabase.table("notifications").insert({
-        "user_id":    reviewer_id,
-        "title":      "Complaint resolved",
-        "message":    f"Public complaint {format_reference(complaint['ref_no'])} is resolved: the inspection was submitted and its report published.",
-        "type":       "success",
-        "link":       f"{base}/complaints",
-        "is_read":    False,
-        "created_at": now,
-    }).execute()
+def _approved_users(supabase: Client, roles: tuple) -> list:
+    users = (
+        supabase.table("users")
+        .select("id, role, is_approved")
+        .in_("role", list(roles))
+        .eq("is_active", True)
+        .execute()
+        .data
+        or []
+    )
+    return [u for u in users if u.get("is_approved") is True]
 
 
 def sync_complaint(inspection_id: Optional[str], actor: Optional[dict] = None, started: bool = False) -> Optional[str]:
@@ -152,7 +152,7 @@ def sync_complaint(inspection_id: Optional[str], actor: Optional[dict] = None, s
         supabase = get_supabase()
         rows = (
             supabase.table("complaints")
-            .select("id, ref_no, status, started_at, reviewed_by")
+            .select("id, status, started_at, submitted_at")
             .eq("inspection_id", inspection_id)
             .in_("status", list(TRACKED_STATUSES))
             .execute()
@@ -161,7 +161,9 @@ def sync_complaint(inspection_id: Optional[str], actor: Optional[dict] = None, s
         if not rows:
             return None
         complaint = rows[0]
-        inspections = supabase.table("inspections").select("status, inspector_id").eq("id", inspection_id).execute().data
+        if complaint["status"] == "reviewed":
+            return "reviewed"
+        inspections = supabase.table("inspections").select("status, inspector_id, submitted_at").eq("id", inspection_id).execute().data
         if not inspections:
             return None
         inspection = inspections[0]
@@ -170,27 +172,16 @@ def sync_complaint(inspection_id: Optional[str], actor: Optional[dict] = None, s
         started_at = complaint.get("started_at")
         if not started_at and started and actor and actor.get("id") == inspection.get("inspector_id"):
             started_at = now
-        published = (
-            supabase.table("reports")
-            .select("id")
-            .eq("inspection_id", inspection_id)
-            .eq("status", "published")
-            .limit(1)
-            .execute()
-            .data
-        )
-        status = derive_status(bool(started_at), inspection.get("status"), bool(published))
+        status = derive_status(bool(started_at), inspection.get("status"))
 
         updates = {}
         if started_at != complaint.get("started_at"):
             updates["started_at"] = started_at
         if status != complaint["status"]:
             updates["status"] = status
-            updates["resolved_at"] = now if status == "resolved" else None
+            updates["submitted_at"] = (inspection.get("submitted_at") or now) if status == "submitted" else None
         if updates:
             supabase.table("complaints").update(updates).eq("id", complaint["id"]).execute()
-            if updates.get("status") == "resolved":
-                _notify_resolved(supabase, complaint, now)
         return status
     except Exception as e:
         print(f"[VIDA] complaint sync failed for inspection {inspection_id}: {e}")
@@ -270,7 +261,7 @@ def notify_complaint_submitted(inspection_id: str, actor: dict) -> int:
         supabase = get_supabase()
         rows = (
             supabase.table("complaints")
-            .select("id, ref_no, status")
+            .select("id, ref_no")
             .eq("inspection_id", inspection_id)
             .in_("status", list(TRACKED_STATUSES))
             .execute()
@@ -280,36 +271,42 @@ def notify_complaint_submitted(inspection_id: str, actor: dict) -> int:
             return 0
         complaint = rows[0]
         reference = format_reference(complaint["ref_no"])
-        outcome = (
-            " The complaint is now resolved."
-            if complaint["status"] == "resolved"
-            else " The complaint stays in progress until the inspection report is published."
-        )
-        recipients = (
-            supabase.table("users")
-            .select("id, role, is_approved")
-            .in_("role", list(REVIEWER_ROLES))
-            .eq("is_active", True)
-            .execute()
-            .data
-            or []
-        )
         now = datetime.now(timezone.utc).isoformat()
         notes = [{
             "user_id":    u["id"],
             "title":      "Complaint inspection submitted",
-            "message":    f"{actor.get('name') or 'An inspector'} submitted the inspection for public complaint {reference}.{outcome}",
+            "message":    f"{actor.get('name') or 'An inspector'} submitted the inspection for public complaint {reference}. Review it and set the severity.",
             "type":       "info",
-            "link":       f"/admin/complaints?open={complaint['id']}" if u["role"] == "admin" else f"/inspector/inspections/{inspection_id}/edit",
+            "link":       f"/inspector/complaints/{complaint['id']}/review",
             "is_read":    False,
             "created_at": now,
-        } for u in recipients if u.get("is_approved") is True]
+        } for u in _approved_users(supabase, ("facility_manager",))]
         if notes:
             supabase.table("notifications").insert(notes).execute()
         return len(notes)
     except Exception as e:
         print(f"[VIDA] complaint submit notification failed for inspection {inspection_id}: {e}")
         return 0
+
+
+def _notify_reviewed(supabase: Client, complaint: dict, assessor: dict, now: str) -> int:
+    reference = format_reference(complaint["ref_no"])
+    note = complaint.get("severity_note")
+    message = f"{assessor.get('name') or 'A facility manager'} reviewed public complaint {reference}: severity {complaint['severity'].upper()}."
+    if note:
+        message += f" Note: {note}"
+    notes = [{
+        "user_id":    u["id"],
+        "title":      "Inspection reviewed",
+        "message":    message,
+        "type":       "warning" if complaint["severity"] in ("high", "critical") else "info",
+        "link":       f"/admin/complaints?open={complaint['id']}",
+        "is_read":    False,
+        "created_at": now,
+    } for u in _approved_users(supabase, ("admin",))]
+    if notes:
+        supabase.table("notifications").insert(notes).execute()
+    return len(notes)
 
 
 def release_complaint(supabase: Client, inspection_id: str) -> None:
@@ -320,7 +317,11 @@ def release_complaint(supabase: Client, inspection_id: str) -> None:
         "reviewed_at":   None,
         "due_date":      None,
         "started_at":    None,
-        "resolved_at":   None,
+        "submitted_at":  None,
+        "severity":      None,
+        "severity_note": None,
+        "assessed_by":   None,
+        "assessed_at":   None,
     }).eq("inspection_id", inspection_id).in_("status", list(TRACKED_STATUSES)).execute()
 
 
@@ -370,6 +371,84 @@ def get_complaint(complaint_id: str, reviewer: dict = Depends(require_reviewer))
     return complaint
 
 
+@router.get("/{complaint_id}/review")
+def get_review(complaint_id: str, reviewer: dict = Depends(require_reviewer)):
+    supabase = get_supabase()
+    rows = (
+        supabase.table("complaints")
+        .select("id, ref_no, floor, location_note, description, " + STATUS_COLUMNS)
+        .eq("id", complaint_id)
+        .execute()
+        .data
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail="Complaint not found")
+    complaint = _shape(rows[0])
+    complaint["photos"] = signed_photos(supabase, complaint_id)
+
+    inspection = None
+    photos, findings = [], []
+    inspection_id = complaint.get("inspection_id")
+    if inspection_id:
+        found = (
+            supabase.table("inspections")
+            .select("id, title, status, inspection_date, weather_condition, floor_level, area_inspected, description, remarks, submitted_at, users!inspector_id(name)")
+            .eq("id", inspection_id)
+            .execute()
+            .data
+        )
+        if found:
+            inspection = found[0]
+            inspection["inspector_name"] = (inspection.pop("users", None) or {}).get("name")
+        photos = (
+            supabase.table("photos")
+            .select("id, url, description, created_at")
+            .eq("inspection_id", inspection_id)
+            .order("created_at")
+            .execute()
+            .data
+            or []
+        )
+        findings = (
+            supabase.table("findings")
+            .select("id, photo_id, defect_type, severity, confidence, location_description, notes")
+            .eq("inspection_id", inspection_id)
+            .execute()
+            .data
+            or []
+        )
+    ranked = [f["severity"] for f in findings if f.get("severity") in SEVERITIES]
+    complaint.pop("inspection", None)
+    return {
+        "complaint":                complaint,
+        "inspection":               inspection,
+        "photos":                   photos,
+        "findings":                 findings,
+        "highest_finding_severity": max(ranked, key=SEVERITIES.index) if ranked else None,
+        "can_review":               reviewer.get("role") == "facility_manager" and complaint["status"] == "submitted",
+    }
+
+
+@router.post("/{complaint_id}/review")
+def review_complaint(complaint_id: str, body: ReviewBody, reviewer: dict = Depends(require_reviewer)):
+    if reviewer.get("role") != "facility_manager":
+        raise HTTPException(status_code=403, detail="Only facility managers can set the severity")
+    supabase = get_supabase()
+    now = datetime.now(timezone.utc).isoformat()
+    complaint = _transition(supabase, complaint_id, "submitted", {
+        "status":        "reviewed",
+        "severity":      body.severity,
+        "severity_note": (body.note or "").strip() or None,
+        "assessed_by":   reviewer["id"],
+        "assessed_at":   now,
+    })
+    try:
+        _notify_reviewed(supabase, complaint, reviewer, now)
+    except Exception as e:
+        print(f"[VIDA] review notification failed for complaint {complaint_id}: {e}")
+    return {"reference": format_reference(complaint["ref_no"]), "status": "reviewed", "severity": complaint["severity"]}
+
+
 @router.post("/{complaint_id}/convert")
 def convert_complaint(complaint_id: str, body: ConvertBody, reviewer: dict = Depends(require_reviewer)):
     if body.due_date and body.due_date < today_myt():
@@ -388,7 +467,7 @@ def convert_complaint(complaint_id: str, body: ConvertBody, reviewer: dict = Dep
         raise HTTPException(status_code=400, detail="Choose an active inspector")
 
     now = datetime.now(timezone.utc).isoformat()
-    complaint = _claim(supabase, complaint_id, {
+    complaint = _transition(supabase, complaint_id, "pending", {
         "status":      "assigned",
         "reviewed_by": reviewer["id"],
         "reviewed_at": now,
@@ -474,7 +553,7 @@ def convert_complaint(complaint_id: str, body: ConvertBody, reviewer: dict = Dep
 @router.post("/{complaint_id}/reject")
 def reject_complaint(complaint_id: str, body: RejectBody, reviewer: dict = Depends(require_reviewer)):
     supabase = get_supabase()
-    complaint = _claim(supabase, complaint_id, {
+    complaint = _transition(supabase, complaint_id, "pending", {
         "status":        "rejected",
         "reject_reason": body.reason.strip(),
         "reviewed_by":   reviewer["id"],

@@ -18,6 +18,7 @@ import AdminNotifications from "./view/Admin/Notifications.jsx";
 import Settings     from "./view/Admin/Settings.jsx";
 import AdminProfile from "./view/Admin/Profile.jsx";
 import Complaints   from "./view/Admin/Complaints.jsx";
+import ComplaintReview from "./view/Admin/ComplaintReview.jsx";
 
 import InspectorLayout   from "./view/Inspector/InspectorLayout.jsx";
 import Home              from "./view/Inspector/Home.jsx";
@@ -72,6 +73,7 @@ export default function App() {
           <Route path="users"         element={<Users />} />
           <Route path="vessels"       element={<Vessels />} />
           <Route path="complaints"    element={<Complaints />} />
+          <Route path="complaints/:id/review" element={<ComplaintReview />} />
           <Route path="reports"       element={<Reports />} />
           <Route path="reports/:id"   element={<ReportView />} />
           <Route path="analytics"     element={<Analytics />} />
@@ -106,6 +108,14 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={["facility_manager"]}>
                 <Complaints />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="complaints/:id/review"
+            element={
+              <ProtectedRoute allowedRoles={["facility_manager"]}>
+                <ComplaintReview />
               </ProtectedRoute>
             }
           />

@@ -285,7 +285,7 @@ export default function EditInspectionPart1() {
       {tab === "photos" && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
           {complaint && (
-            <p className="text-xs text-slate-500 dark:text-slate-400">Add any new photos, run the AI scan, then press Save &amp; Submit. Admins and facility managers are notified when you submit.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Add any new photos, run the AI scan, then press Save &amp; Submit. Facility managers are notified to review it.</p>
           )}
           <InspectionPhoto inspectionId={id} embedded />
           <div className="flex justify-end pt-2">

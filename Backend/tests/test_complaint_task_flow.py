@@ -60,33 +60,27 @@ def test_complaint_box_endpoint_permissions(client, login, monkeypatch):
     assert client.get("/inspections/missing/complaint").status_code == 404
 
 
-def test_submit_notifies_approved_admins_and_facility_managers(monkeypatch):
+def test_submit_notifies_approved_facility_managers_to_review(monkeypatch):
     users = [
-        {"id": "admin1", "role": "admin", "is_approved": True},
         {"id": "fm1", "role": "facility_manager", "is_approved": True},
+        {"id": "fm2", "role": "facility_manager", "is_approved": True},
         {"id": "fm-pending", "role": "facility_manager", "is_approved": None},
-        {"id": "admin-rejected", "role": "admin", "is_approved": False},
+        {"id": "fm-rejected", "role": "facility_manager", "is_approved": False},
     ]
     db = FakeSupabase(responses={
-        ("complaints", "select"): [{"id": "c1", "ref_no": 12, "status": "in_progress"}],
+        ("complaints", "select"): [{"id": "c1", "ref_no": 12}],
         ("users", "select"): users,
     })
     monkeypatch.setattr(complaint, "get_supabase", lambda: db)
     assert complaint.notify_complaint_submitted("insp1", OWNER) == 2
     notes = {n["user_id"]: n for n in db.inserted["notifications"]}
-    assert set(notes) == {"admin1", "fm1"}
-    assert notes["admin1"]["link"] == "/admin/complaints?open=c1"
-    assert notes["fm1"]["link"] == "/inspector/inspections/insp1/edit"
-    assert "Owner Inspector" in notes["fm1"]["message"] and "VIDA-C-0012" in notes["fm1"]["message"]
-    assert "stays in progress" in notes["fm1"]["message"]
-
-    resolved_db = FakeSupabase(responses={
-        ("complaints", "select"): [{"id": "c1", "ref_no": 12, "status": "resolved"}],
-        ("users", "select"): users[:1],
-    })
-    monkeypatch.setattr(complaint, "get_supabase", lambda: resolved_db)
-    complaint.notify_complaint_submitted("insp1", OWNER)
-    assert "now resolved" in resolved_db.inserted["notifications"][0]["message"]
+    assert set(notes) == {"fm1", "fm2"}
+    assert all(n["link"] == "/inspector/complaints/c1/review" for n in notes.values())
+    message = notes["fm1"]["message"]
+    assert "Owner Inspector" in message and "VIDA-C-0012" in message and "set the severity" in message
+    assert "progress" not in message and "report" not in message and "resolved" not in message
+    users_query = next(q for q in db.queries if q.table == "users")
+    assert users_query.filters.get("is_active") is True
 
 
 def test_submit_notification_skips_normal_inspections_and_never_raises(monkeypatch):

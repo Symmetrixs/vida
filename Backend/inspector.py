@@ -5,11 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from pydantic import BaseModel
 from supabase import create_client, Client
 from auth import get_current_user
-from complaint import TRACKED_STATUSES, overdue_info, resolved_late
+from complaint import OPEN_STATUSES, TRACKED_STATUSES, overdue_info, submitted_late
 from public import format_reference
 import uuid
 
-RESOLVED_TASK_DAYS = 7
+DONE_TASK_DAYS = 7
 
 router = APIRouter()
 
@@ -210,7 +210,7 @@ def assigned_tasks(current_user: dict = Depends(get_current_user)):
     rows = (
         supabase.table("complaints")
         .select(
-            "ref_no, floor, location_note, description, status, due_date, reviewed_at, started_at, resolved_at, "
+            "ref_no, floor, location_note, description, status, due_date, reviewed_at, started_at, submitted_at, severity, "
             "buildings(name, code), inspections!inner(id, title, status, inspector_id)"
         )
         .eq("inspections.inspector_id", current_user["id"])
@@ -219,11 +219,12 @@ def assigned_tasks(current_user: dict = Depends(get_current_user)):
         .data
         or []
     )
-    cutoff = datetime.now(timezone.utc) - timedelta(days=RESOLVED_TASK_DAYS)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=DONE_TASK_DAYS)
     tasks = []
     for row in rows:
-        if row["status"] == "resolved" and row.get("resolved_at"):
-            if datetime.fromisoformat(row["resolved_at"].replace("Z", "+00:00")) < cutoff:
+        done = row["status"] not in OPEN_STATUSES
+        if done and row.get("submitted_at"):
+            if datetime.fromisoformat(row["submitted_at"].replace("Z", "+00:00")) < cutoff:
                 continue
         inspection = row.get("inspections") or {}
         is_overdue, days_overdue = overdue_info(row["status"], row.get("due_date"))
@@ -236,16 +237,17 @@ def assigned_tasks(current_user: dict = Depends(get_current_user)):
             "description":       row["description"],
             "due_date":          row.get("due_date"),
             "assigned_at":       row.get("reviewed_at"),
-            "resolved_at":       row.get("resolved_at"),
+            "submitted_at":      row.get("submitted_at"),
+            "severity":          row.get("severity") if row["status"] == "reviewed" else None,
             "is_overdue":        is_overdue,
             "days_overdue":      days_overdue,
-            "resolved_late":     row["status"] == "resolved" and resolved_late(row.get("due_date"), row.get("resolved_at")),
+            "submitted_late":    done and submitted_late(row.get("due_date"), row.get("submitted_at")),
             "inspection_id":     inspection.get("id"),
             "inspection_title":  inspection.get("title"),
             "inspection_status": inspection.get("status"),
         })
     tasks.sort(key=lambda t: (
-        t["status"] == "resolved",
+        t["status"] not in OPEN_STATUSES,
         not t["is_overdue"],
         -t["days_overdue"],
         t["due_date"] is None,
