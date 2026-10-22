@@ -8,6 +8,7 @@ import {
 import api from "../../api/axios.js";
 import { useAuth } from "../../context/auth.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 
 const STATUS_COLOR = {
   draft:     "badge-gray",
@@ -49,7 +50,7 @@ function NewReportModal({ inspections, onClose, onCreated }) {
       const r = await api.post("/reports/", { inspection_id: inspId, ...form });
       toast.success("Report created");
       onCreated(r.data.id);
-    } catch { toast.error("Failed to create report"); }
+    } catch (e) { toast.error(apiErrorText(e, "Failed to create report")); }
     finally { setCreating(false); }
   };
 
@@ -187,7 +188,7 @@ export default function ReportManagement() {
     setLoading(true);
     Promise.all([api.get("/reports/"), api.get("/inspections/")])
       .then(([rr, ir]) => { setReports(rr.data); setInspections(ir.data); })
-      .catch(() => toast.error("Failed to load"))
+      .catch(e => toast.error(apiErrorText(e, "Failed to load")))
       .finally(() => setLoading(false));
   };
   useEffect(() => { fetchAll(); }, []);
@@ -199,7 +200,7 @@ export default function ReportManagement() {
       await api.delete(`/reports/${id}`);
       toast.success("Report deleted");
       fetchAll();
-    } catch { toast.error("Failed to delete"); }
+    } catch (e) { toast.error(apiErrorText(e, "Failed to delete")); }
   };
 
   const handlePublish = async (id, e) => {
@@ -208,7 +209,7 @@ export default function ReportManagement() {
       await api.post(`/reports/${id}/publish`);
       toast.success("Report published");
       fetchAll();
-    } catch { toast.error("Failed to publish"); }
+    } catch (e) { toast.error(apiErrorText(e, "Failed to publish")); }
   };
 
   const filtered = useMemo(() => {

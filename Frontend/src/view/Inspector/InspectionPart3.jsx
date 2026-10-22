@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ChevronLeft, CheckCircle, AlertTriangle, X, Expand } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 import { getAnnot } from "../../utils/annotCache.js";
 
 const DEFECT_COLORS = {
@@ -52,7 +53,7 @@ export default function InspectionPart3() {
       await api.delete(`/findings/${findingId}`);
       setFindings(prev => prev.filter(f => f.id !== findingId));
       toast.success("Finding removed");
-    } catch { toast.error("Failed to remove finding"); }
+    } catch (e) { toast.error(apiErrorText(e, "Failed to remove finding")); }
   };
 
   const handleSubmit = async () => {
@@ -65,7 +66,7 @@ export default function InspectionPart3() {
       sessionStorage.removeItem(`vida_annot_${inspectionId}`);
       toast.success("Inspection submitted successfully!");
       navigate("/inspections");
-    } catch { toast.error("Submission failed"); }
+    } catch (e) { toast.error(apiErrorText(e, "Submission failed")); }
     finally { setSubmitting(false); }
   };
 

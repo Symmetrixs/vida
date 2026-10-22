@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import api from "../../api/axios.js";
 import { useAuth } from "../../context/auth.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 
 export default function ComplaintReview() {
   const { id } = useParams();
@@ -19,8 +20,8 @@ export default function ComplaintReview() {
         toast.error("No inspection is linked to this complaint yet");
         navigate(fallback, { replace: true });
       }
-    }).catch(() => {
-      toast.error("Failed to load the complaint");
+    }).catch((e) => {
+      toast.error(apiErrorText(e, "Failed to load the complaint"));
       navigate(fallback, { replace: true });
     });
   }, [id, fallback, navigate]);

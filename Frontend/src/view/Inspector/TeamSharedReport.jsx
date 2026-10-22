@@ -4,6 +4,7 @@ import { Share2, FileText, User, Search, X, Check, Building2, Calendar, External
 import { useNavigate } from "react-router-dom";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 import { useAuth } from "../../context/auth.js";
 
 export default function SharedReports() {
@@ -29,7 +30,7 @@ export default function SharedReports() {
       setSharedWithMe(s.data);
       setUsers(u.data);
       setReports(r.data.filter(rep => rep.status === "published"));
-    }).catch(() => toast.error("Failed to load"))
+    }).catch(e => toast.error(apiErrorText(e, "Failed to load")))
       .finally(() => setLoading(false));
   };
 
@@ -67,7 +68,7 @@ export default function SharedReports() {
       setUserSearch("");
       fetchAll();
     } catch (e) {
-      toast.error(e.response?.data?.detail || "Failed to share");
+      toast.error(apiErrorText(e, "Failed to share"));
     } finally { setSharing(false); }
   };
 

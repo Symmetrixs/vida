@@ -6,6 +6,7 @@ import api from "../../api/axios.js";
 import { useAuth } from "../../context/auth.js";
 import { rolesText } from "../../utils/roles.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 
 const TYPE_OPTS = [
   { value: "info",    label: "Info",    color: "bg-blue-500",   icon: Info },
@@ -81,7 +82,7 @@ export default function Notifications() {
       }
       setShowForm(false);
       setForm({ target: "all", user_id: "", title: "", message: "", type: "info" });
-    } catch (e) { toast.error(e.response?.data?.detail || "Failed to send"); }
+    } catch (e) { toast.error(apiErrorText(e, "Failed to send")); }
     finally { setSending(false); }
   };
 

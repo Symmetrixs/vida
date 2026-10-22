@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { Save, ArrowLeft, ClipboardList, Camera, Lock, Inbox, MapPin, CalendarClock, Image as ImageIcon } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 import InspectionPhoto from "./InspectionPhoto.jsx";
 import { floorOptions } from "../../utils/floors.js";
 import { SEVERITY_CLASS, fmtDateTime } from "../../utils/complaintUi.js";
@@ -32,13 +33,18 @@ function ReviewedLock({ review, onBack }) {
   );
 }
 
-function ComplaintBox({ complaint }) {
+function ComplaintBox({ complaint, inspectionReference }) {
   return (
     <motion.div className="card p-5 border-l-4 border-primary-500" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
       <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
-        <h2 className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+        <h2 className="font-semibold text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">
           <Inbox size={17} className="text-primary-600"/> Original complaint
           <span className="font-mono text-sm text-primary-700 dark:text-primary-300">{complaint.reference}</span>
+          {inspectionReference && (
+            <span className="text-sm font-normal text-slate-500 dark:text-slate-400">
+              Inspection <span className="font-mono text-slate-700 dark:text-slate-300">{inspectionReference}</span>
+            </span>
+          )}
         </h2>
         {complaint.due_date && (
           <span className="inline-flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400"><CalendarClock size={13}/> Due {fmtDay(complaint.due_date)}</span>
@@ -104,7 +110,7 @@ export default function EditInspectionPart1() {
         description:       d.description        || "",
       });
       setBuildings(bldg.data);
-    }).catch(() => toast.error("Failed to load"));
+    }).catch(e => toast.error(apiErrorText(e, "Failed to load")));
   }, [id]);
 
   const selectedBuilding = useMemo(
@@ -147,7 +153,7 @@ export default function EditInspectionPart1() {
         toast.success("Inspection updated");
         navigate("/inspections");
       }
-    } catch { toast.error("Update failed"); }
+    } catch (e) { toast.error(apiErrorText(e, "Update failed")); }
     finally { setLoading(false); }
   };
 
@@ -166,7 +172,7 @@ export default function EditInspectionPart1() {
         <h1 className="page-title">Edit Inspection {reference && <span className="font-mono text-base text-slate-400 ml-1">{reference}</span>}</h1>
       </div>
 
-      {complaint && <ComplaintBox complaint={complaint}/>}
+      {complaint && <ComplaintBox complaint={complaint} inspectionReference={reference}/>}
 
       {review && <ReviewedLock review={review} onBack={() => navigate(-1)}/>}
 
@@ -317,7 +323,7 @@ export default function EditInspectionPart1() {
                   await api.post(`/inspections/${id}/submit`);
                   toast.success("Inspection submitted!");
                   navigate("/inspections");
-                } catch { toast.error("Submit failed"); }
+                } catch (e) { toast.error(apiErrorText(e, "Submit failed")); }
               }}
               className="btn-primary flex items-center gap-2"
               whileTap={{ scale: 0.97 }}

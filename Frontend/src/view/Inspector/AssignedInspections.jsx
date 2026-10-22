@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { AlertTriangle, CalendarClock, ClipboardCheck } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 import { OPEN_STATUSES, STATUS_LABEL, STATUS_CLASS, SEVERITY_CLASS, fmtDay } from "../../utils/complaintUi.js";
 
 function TaskDue({ task }) {
@@ -30,7 +31,7 @@ export default function AssignedInspections() {
   useEffect(() => {
     api.get("/inspector/assigned-tasks")
       .then(r => setTasks(r.data))
-      .catch(() => toast.error("Failed to load assigned inspections"))
+      .catch(e => toast.error(apiErrorText(e, "Failed to load assigned inspections")))
       .finally(() => setLoading(false));
   }, []);
 

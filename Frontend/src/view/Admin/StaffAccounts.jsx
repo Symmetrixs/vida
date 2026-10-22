@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Users as UsersIcon, Search, Pencil, Trash2, X, UserPlus } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 import clsx from "clsx";
 import { useAuth } from "../../context/auth.js";
 import { ROLE_OPTIONS, roleBadge, roleLabel } from "../../utils/roles.js";
@@ -65,8 +66,7 @@ function StaffModal({ staff, isSelf, onClose, onSaved }) {
       }
       onSaved();
     } catch (e) {
-      const detail = e.response?.data?.detail;
-      toast.error(typeof detail === "string" ? detail : "Please check the form and try again");
+      toast.error(apiErrorText(e, "Please check the form and try again"));
     } finally { setSaving(false); }
   };
 
@@ -124,7 +124,7 @@ export default function StaffAccounts() {
   const fetchAll = () => {
     setLoading(true);
     api.get("/admin/users").then(r => setStaff(r.data))
-      .catch(() => toast.error("Failed to load staff accounts"))
+      .catch(e => toast.error(apiErrorText(e, "Failed to load staff accounts")))
       .finally(() => setLoading(false));
   };
 
@@ -136,7 +136,7 @@ export default function StaffAccounts() {
       await api.delete(`/admin/users/${u.id}`);
       toast.success("Account deleted");
       fetchAll();
-    } catch (e) { toast.error(e.response?.data?.detail || "Delete failed"); }
+    } catch (e) { toast.error(apiErrorText(e, "Delete failed")); }
   };
 
   const q = search.toLowerCase();

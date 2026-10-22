@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { ShieldAlert, User, Image as ImageIcon, ChevronRight } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 import clsx from "clsx";
 import { ListShell } from "../../components/RepairParts.jsx";
 import { SEVERITY_CLASS, fmtDateTime } from "../../utils/complaintUi.js";
@@ -21,7 +22,7 @@ export default function SeverityReview() {
   useEffect(() => {
     api.get("/inspections/review-queue")
       .then(r => setRows(r.data))
-      .catch(() => toast.error("Failed to load inspections"))
+      .catch(e => toast.error(apiErrorText(e, "Failed to load inspections")))
       .finally(() => setLoading(false));
   }, []);
 

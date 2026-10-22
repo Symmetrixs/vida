@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { LayoutGrid, ClipboardCheck, Hand } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 import clsx from "clsx";
 import { JobRow, ListShell } from "../../components/RepairParts.jsx";
 
@@ -50,7 +51,7 @@ export default function JobList({ mode }) {
     setLoading(true);
     api.get(config.url)
       .then(r => setJobs(r.data))
-      .catch(() => toast.error("Failed to load jobs"))
+      .catch(e => toast.error(apiErrorText(e, "Failed to load jobs")))
       .finally(() => setLoading(false));
   }, [config.url]);
 

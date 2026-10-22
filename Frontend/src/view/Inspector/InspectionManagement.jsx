@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { ClipboardList, Plus, Search, Eye, Pencil, Trash2, Camera, Lock } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 
 const STATUS_COLOR = { draft: "badge-gray", submitted: "badge-blue", completed: "badge-green" };
 
@@ -21,7 +22,7 @@ export default function InspectionManagement() {
 
   const fetchData = () => {
     setLoading(true);
-    api.get("/inspections/").then(r => setInspections(r.data)).catch(() => toast.error("Failed to load")).finally(() => setLoading(false));
+    api.get("/inspections/").then(r => setInspections(r.data)).catch(e => toast.error(apiErrorText(e, "Failed to load"))).finally(() => setLoading(false));
   };
   useEffect(() => { fetchData(); }, []);
 

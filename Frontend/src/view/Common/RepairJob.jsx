@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 import clsx from "clsx";
 import { JobNumbers, JobBadges } from "../../components/RepairParts.jsx";
 import { SEVERITY_CLASS, fmtDateTime, fmtDay } from "../../utils/complaintUi.js";
@@ -95,7 +96,7 @@ export default function RepairJob() {
       setData(r.data);
       setNotes(r.data.job.repair_notes || "");
     }).catch((e) => {
-      toast.error(e.response?.status === 403 ? "This job is no longer yours" : "Failed to load the repair job");
+      toast.error(e.response?.status === 403 ? "This job is no longer yours" : apiErrorText(e, "Failed to load the repair job"));
       navigate("/");
     });
   }, [id, navigate]);
@@ -106,7 +107,7 @@ export default function RepairJob() {
   const needsWorkers = permissions && (permissions.can_assign || permissions.can_reassign);
   useEffect(() => {
     if (!needsWorkers || workers.length) return;
-    api.get("/repairs/staff").then(r => setWorkers(r.data)).catch(() => toast.error("Failed to load maintenance staff"));
+    api.get("/repairs/staff").then(r => setWorkers(r.data)).catch(e => toast.error(apiErrorText(e, "Failed to load maintenance staff")));
   }, [needsWorkers, workers.length]);
 
   const run = async (request, success) => {
@@ -118,7 +119,7 @@ export default function RepairJob() {
       setForm({ worker_id: "", due_date: "", reason: "", note: "" });
       await load();
     } catch (e) {
-      toast.error(e.response?.data?.detail || "Action failed");
+      toast.error(apiErrorText(e, "Action failed"));
     } finally {
       setBusy(false);
     }
@@ -156,7 +157,7 @@ export default function RepairJob() {
         const r = await api.post(`/repairs/${id}/photos`, body, { timeout: 120000 });
         toast.success(r.data.scanned ? `Uploaded. AI: ${countsText(r.data.counts)}` : "Uploaded. AI scan unavailable.");
       } catch (e) {
-        toast.error(e.response?.data?.detail || `Upload failed: ${file.name}`);
+        toast.error(apiErrorText(e, `Upload failed: ${file.name}`));
       }
       setUploading(n => n - 1);
     }
@@ -168,7 +169,7 @@ export default function RepairJob() {
     try {
       await api.delete(`/repairs/${id}/photos/${photo.id}`);
       load();
-    } catch (e) { toast.error(e.response?.data?.detail || "Delete failed"); }
+    } catch (e) { toast.error(apiErrorText(e, "Delete failed")); }
   };
 
   if (!data) return (

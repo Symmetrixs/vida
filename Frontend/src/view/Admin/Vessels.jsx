@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Building2, Plus, Search, Pencil, Trash2, X } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 
 function BuildingModal({ building, onClose, onSaved }) {
   const isEdit = !!building;
@@ -21,7 +22,7 @@ function BuildingModal({ building, onClose, onSaved }) {
       else await api.post("/buildings/", payload);
       toast.success(isEdit ? "Building updated" : "Building created");
       onSaved();
-    } catch (e) { toast.error(e.response?.data?.detail || "Failed"); }
+    } catch (e) { toast.error(apiErrorText(e, "Failed")); }
     finally { setLoading(false); }
   };
   return (
@@ -61,7 +62,7 @@ export default function Vessels() {
 
   const fetch = () => {
     setLoading(true);
-    api.get("/buildings/").then(r => setBuildings(r.data)).catch(() => toast.error("Failed to load buildings")).finally(() => setLoading(false));
+    api.get("/buildings/").then(r => setBuildings(r.data)).catch(e => toast.error(apiErrorText(e, "Failed to load buildings"))).finally(() => setLoading(false));
   };
   useEffect(() => { fetch(); }, []);
 

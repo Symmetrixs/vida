@@ -5,6 +5,7 @@ import { ArrowLeft, MapPin, ClipboardList, Image as ImageIcon, ShieldAlert, Send
 import api from "../../api/axios.js";
 import { useAuth } from "../../context/auth.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 import clsx from "clsx";
 import { SEVERITIES, SEVERITY_CLASS, SEVERITY_HELP, fmtDateTime, fmtDay } from "../../utils/complaintUi.js";
 import { JOB_STATUS_LABEL, JOB_STATUS_CLASS, defectLabel } from "../../utils/repairUi.js";
@@ -42,8 +43,8 @@ export default function InspectionReview() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api.get(`/inspections/${id}/review`).then(r => setData(r.data)).catch(() => {
-      toast.error("Failed to load the inspection");
+    api.get(`/inspections/${id}/review`).then(r => setData(r.data)).catch((e) => {
+      toast.error(apiErrorText(e, "Failed to load the inspection"));
       navigate(inbox);
     });
   }, [id, inbox, navigate]);
@@ -55,7 +56,7 @@ export default function InspectionReview() {
       await api.post(`/inspections/${id}/review`, { severity, note: note.trim() || null });
       toast.success("Review sent to admin");
       navigate(inbox);
-    } catch (e) { toast.error(e.response?.data?.detail || "Review failed"); }
+    } catch (e) { toast.error(apiErrorText(e, "Review failed")); }
     finally { setBusy(false); }
   };
 

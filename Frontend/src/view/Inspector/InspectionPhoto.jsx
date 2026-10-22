@@ -5,6 +5,7 @@ import { useDropzone } from "react-dropzone";
 import { Upload, Scan, Trash2, Pencil, XCircle, Plus, X, ZoomIn } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 import AnnotationModal from "../../components/AnnotationModal.jsx";
 import { getAnnot, setAnnot } from "../../utils/annotCache.js";
 
@@ -186,8 +187,8 @@ export default function InspectionPhoto({ inspectionId: propId, embedded = false
       const fd = new FormData();
       fd.append("file", file);
       fd.append("inspection_id", inspId);
-      try { await api.post("/photos/upload", fd, { headers: { "Content-Type": "multipart/form-data" } }); }
-      catch { toast.error(`Failed: ${file.name}`); }
+      try { await api.post("/photos/upload", fd); }
+      catch (e) { toast.error(`${file.name}: ${apiErrorText(e, "Upload failed")}`); }
     }
     await fetchPhotos();
     toast.success(`${files.length} photo(s) uploaded`);
@@ -209,7 +210,7 @@ export default function InspectionPhoto({ inspectionId: propId, embedded = false
       await api.delete(`/findings/by-photo/${photo.id}`).catch(() => {});
       const blob = await fetch(photo.url).then(r => r.blob());
       const fd   = new FormData(); fd.append("file", blob, "photo.jpg");
-      const r    = await api.post("/ai/detect", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      const r    = await api.post("/ai/detect", fd);
       const dets = r.data.detections || [];
       if (dets.length > 0) {
         for (const det of dets) {
@@ -225,7 +226,7 @@ export default function InspectionPhoto({ inspectionId: propId, embedded = false
         toast.success(`${dets.length} defect(s) detected`);
       } else { toast("No defects", { icon: "✅" }); }
       setAiResults(prev => ({ ...prev, [photo.id]: dets }));
-    } catch (e) { toast.error("AI scan failed — " + (e?.response?.data?.detail || e.message)); }
+    } catch (e) { toast.error(`AI scan failed: ${apiErrorText(e, e.message)}`); }
     finally { setScanning(null); }
   };
 

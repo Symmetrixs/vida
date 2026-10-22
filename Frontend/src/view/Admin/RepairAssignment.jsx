@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Hammer, X, Plus, User, Eye, ClipboardList } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 import clsx from "clsx";
 import { JobRow, ListShell } from "../../components/RepairParts.jsx";
 import { SEVERITY_CLASS, fmtDateTime } from "../../utils/complaintUi.js";
@@ -17,7 +18,7 @@ function CreateModal({ inspection, onClose, onCreated }) {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api.get("/repairs/staff").then(r => setWorkers(r.data)).catch(() => toast.error("Failed to load maintenance staff"));
+    api.get("/repairs/staff").then(r => setWorkers(r.data)).catch(e => toast.error(apiErrorText(e, "Failed to load maintenance staff")));
   }, []);
 
   const handleCreate = async () => {
@@ -34,7 +35,7 @@ function CreateModal({ inspection, onClose, onCreated }) {
       toast.success(`${r.data.reference} created${form.worker_id ? " and assigned" : " on the Job Board"}`);
       if (!r.data.before_scanned) toast("The AI scan of the inspection photos was not available. Before counts will be empty.");
       onCreated(r.data);
-    } catch (e) { toast.error(e.response?.data?.detail || "Could not create the repair job"); }
+    } catch (e) { toast.error(apiErrorText(e, "Could not create the repair job")); }
     finally { setBusy(false); }
   };
 
@@ -88,7 +89,7 @@ export default function RepairAssignment() {
     setLoading(true);
     Promise.all([api.get("/repairs/candidates"), api.get("/repairs/")])
       .then(([c, j]) => { setCandidates(c.data); setJobs(j.data); })
-      .catch(() => toast.error("Failed to load repair jobs"))
+      .catch(e => toast.error(apiErrorText(e, "Failed to load repair jobs")))
       .finally(() => setLoading(false));
   }, []);
 

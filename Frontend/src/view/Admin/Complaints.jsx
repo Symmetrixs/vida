@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Inbox, X, Image as ImageIcon, MapPin, User, ClipboardCheck, Ban, CalendarClock, AlertTriangle, FileText, Circle, CheckCircle2, ShieldAlert, Eye, ScanSearch } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 import clsx from "clsx";
 import { OPEN_STATUSES, STATUS_LABEL, STATUS_CLASS, SEVERITY_CLASS, fmtDateTime as fmtDate, fmtDay } from "../../utils/complaintUi.js";
 import { countsText } from "../../utils/repairUi.js";
@@ -106,12 +107,12 @@ function ComplaintModal({ complaintId, onClose, onChanged }) {
       api.post(`/complaints/${complaintId}/scan`, null, { timeout: 120000 })
         .then(s => setScans(Object.fromEntries(s.data.map(x => [x.id, x]))))
         .catch(() => setScans({}));
-    }).catch(() => { toast.error("Failed to load complaint"); onClose(); });
+    }).catch((e) => { toast.error(apiErrorText(e, "Failed to load complaint")); onClose(); });
   }, [complaintId, onClose]);
 
   useEffect(() => {
     if (mode !== "convert" || assignees.length) return;
-    api.get("/complaints/assignees").then(r => setAssignees(r.data)).catch(() => toast.error("Failed to load inspectors"));
+    api.get("/complaints/assignees").then(r => setAssignees(r.data)).catch(e => toast.error(apiErrorText(e, "Failed to load inspectors")));
   }, [mode, assignees.length]);
 
   const handleConvert = async () => {
@@ -126,7 +127,7 @@ function ComplaintModal({ complaintId, onClose, onChanged }) {
       }, { timeout: 60000 });
       toast.success("Converted into an inspection and assigned");
       onChanged();
-    } catch (e) { toast.error(e.response?.data?.detail || "Conversion failed"); }
+    } catch (e) { toast.error(apiErrorText(e, "Conversion failed")); }
     finally { setBusy(false); }
   };
 
@@ -137,7 +138,7 @@ function ComplaintModal({ complaintId, onClose, onChanged }) {
       await api.post(`/complaints/${complaintId}/reject`, { reason: reason.trim() });
       toast.success("Complaint rejected");
       onChanged();
-    } catch (e) { toast.error(e.response?.data?.detail || "Reject failed"); }
+    } catch (e) { toast.error(apiErrorText(e, "Reject failed")); }
     finally { setBusy(false); }
   };
 
@@ -296,7 +297,7 @@ export default function Complaints() {
 
   const load = useCallback(() => {
     setLoading(true);
-    api.get("/complaints/").then(r => setComplaints(r.data)).catch(() => toast.error("Failed to load complaints")).finally(() => setLoading(false));
+    api.get("/complaints/").then(r => setComplaints(r.data)).catch(e => toast.error(apiErrorText(e, "Failed to load complaints"))).finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { load(); }, [load]);

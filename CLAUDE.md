@@ -9,7 +9,7 @@ VIDA (Visual Infrastructure and Defect Analyzer): UTeM final year project. Inspe
 - Never run git add, commit or push. Never add Co-Authored-By, Claude, or AI attribution to anything. At the end of a task, give me the exact git commands and a plain commit message to run myself.
 - Chat naming: at the start of each session, read the line below, give the user the exact `/rename NN Short task title` command for the next number (two digits), then update the line to that number.
 
-Last chat: 06
+Last chat: 07
 
 ## Stack and layout
 - `Frontend/`: React 18 + Vite + Tailwind. `src/view/{Admin,Auth,Common,Inspector}` are pages (Common holds Home, Notifications, Profile, Settings for every role). One layout for everyone, `components/AppLayout.jsx`, shows sidebar sections per role held; routes are flat (`/inspections`, `/complaints`, `/staff`, ...) and wrapped in `RequireRole` in `App.jsx`. `useAuth().hasRole(...)` is the only role check. `src/api/axios.js` is the single API client (JWT from localStorage key `vida-token`, 401 redirects to /login). PDF/DOCX reports are built client-side in `src/model/`.

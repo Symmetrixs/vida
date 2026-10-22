@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 
 const DEFECT_COLORS = {
   crack:         "#ef4444",
@@ -112,7 +113,7 @@ export default function Analytics() {
     const params = Object.fromEntries(Object.entries(f).filter(([_, v]) => v));
     api.get("/admin/analytics", { params })
       .then(r => setData(r.data))
-      .catch(() => toast.error("Failed to load analytics"))
+      .catch(e => toast.error(apiErrorText(e, "Failed to load analytics")))
       .finally(() => setLoading(false));
   }, []);
 

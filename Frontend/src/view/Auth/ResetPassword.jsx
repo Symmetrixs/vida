@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { Eye, EyeOff, Lock, CheckCircle } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 
 export default function ResetPassword() {
   const [params] = useSearchParams();
@@ -26,7 +27,7 @@ export default function ResetPassword() {
       toast.success("Password reset!");
       setTimeout(() => navigate("/login"), 2000);
     } catch (err) {
-      setError(err.response?.data?.detail || "Invalid or expired link");
+      setError(apiErrorText(err, "Invalid or expired link"));
     } finally {
       setLoading(false);
     }

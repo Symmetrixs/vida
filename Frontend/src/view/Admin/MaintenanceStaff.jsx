@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { HardHat } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 import clsx from "clsx";
 
 const COLUMNS = [
@@ -19,7 +20,7 @@ export default function MaintenanceStaff() {
   useEffect(() => {
     api.get("/repairs/staff")
       .then(r => setStaff([...r.data].sort((a, b) => a.active - b.active || a.name.localeCompare(b.name))))
-      .catch(() => toast.error("Failed to load maintenance staff"))
+      .catch(e => toast.error(apiErrorText(e, "Failed to load maintenance staff")))
       .finally(() => setLoading(false));
   }, []);
 

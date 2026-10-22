@@ -10,6 +10,7 @@ import {
 import api from "../../api/axios.js";
 import { useAuth } from "../../context/auth.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 import { exportReportPdf } from "../../model/pdfGenerator.js";
 import { exportReportDocx } from "../../model/docGenerator.js";
 
@@ -371,7 +372,7 @@ export default function ReportView() {
         try { Object.assign(existingRows, JSON.parse(rep.row_data)); } catch {}
       }
       setRows(existingRows);
-    }).catch(() => { toast.error("Failed to load report"); navigate(backTo); })
+    }).catch((e) => { toast.error(apiErrorText(e, "Failed to load report")); navigate(backTo); })
       .finally(() => setLoading(false));
   }, [id, backTo, navigate]);
 
@@ -408,7 +409,7 @@ export default function ReportView() {
       });
       setFindings(prev => [...prev, res.data]);
       toast.success("Defect logged to database");
-    } catch { toast.error("Failed to log defect"); }
+    } catch (e) { toast.error(apiErrorText(e, "Failed to log defect")); }
   };
 
   const handleSave = async () => {
@@ -421,7 +422,7 @@ export default function ReportView() {
         row_data:        rows,
       });
       toast.success("Report saved");
-    } catch { toast.error("Save failed"); }
+    } catch (e) { toast.error(apiErrorText(e, "Save failed")); }
     finally { setSaving(false); }
   };
 
@@ -438,7 +439,7 @@ export default function ReportView() {
       toast.success("Exported as " + format.toUpperCase());
     } catch (e) {
       console.error(e);
-      toast.error("Export failed: " + e.message);
+      toast.error(apiErrorText(e, `Export failed: ${e.message}`));
     } finally { setExporting(null); }
   };
 
@@ -451,7 +452,7 @@ export default function ReportView() {
         recommendations: header.recommendations,
         row_data:        rows,
       });
-    } catch { toast.error("Failed to save before publishing"); setSaving(false); return; }
+    } catch (e) { toast.error(apiErrorText(e, "Failed to save before publishing")); setSaving(false); return; }
     setSaving(false);
 
     try {
@@ -459,7 +460,7 @@ export default function ReportView() {
       setReport(prev => ({ ...prev, status: "published" }));
       toast.success("Report published!");
       setShowExportModal(true);
-    } catch { toast.error("Failed to publish"); }
+    } catch (e) { toast.error(apiErrorText(e, "Failed to publish")); }
   };
 
   const handleExportChoice = async (format) => {
@@ -471,7 +472,7 @@ export default function ReportView() {
         else                   await exportReportDocx(buildExportPayload());
         toast.success("Exported as " + format.toUpperCase());
       } catch (e) {
-        toast.error("Export failed: " + e.message);
+        toast.error(apiErrorText(e, `Export failed: ${e.message}`));
       } finally { setExporting(null); }
     }
     navigate(backTo);

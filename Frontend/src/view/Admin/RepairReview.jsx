@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Scale } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 import { JobRow, ListShell } from "../../components/RepairParts.jsx";
 
 export default function RepairReview() {
@@ -11,7 +12,7 @@ export default function RepairReview() {
   useEffect(() => {
     api.get("/repairs/?status=awaiting_review")
       .then(r => setJobs(r.data))
-      .catch(() => toast.error("Failed to load repairs awaiting review"))
+      .catch(e => toast.error(apiErrorText(e, "Failed to load repairs awaiting review")))
       .finally(() => setLoading(false));
   }, []);
 

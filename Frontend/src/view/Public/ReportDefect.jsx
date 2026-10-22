@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { AlertCircle, ArrowLeft, CheckCircle2, Copy, ImagePlus, RefreshCw, Send, X } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 import logo from "../../assets/company-logo.png";
 import { floorOptions } from "../../utils/floors.js";
 
@@ -13,13 +14,6 @@ const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const BLANK = { building_id: "", floor: "", location_note: "", description: "", reporter_name: "", reporter_email: "", reporter_phone: "", website: "" };
 
 const locationOptions = (floors) => [...floorOptions(floors), "Outside the building"];
-
-const errorText = (err, fallback) => {
-  const detail = err.response?.data?.detail;
-  if (typeof detail === "string") return detail;
-  if (Array.isArray(detail)) return "Please check the form and try again.";
-  return fallback;
-};
 
 export default function ReportDefect() {
   const [buildings, setBuildings] = useState([]);
@@ -40,7 +34,7 @@ export default function ReportDefect() {
   }, []);
 
   useEffect(() => {
-    api.get("/public/buildings").then(r => setBuildings(r.data)).catch(() => toast.error("Could not load buildings"));
+    api.get("/public/buildings").then(r => setBuildings(r.data)).catch(e => toast.error(apiErrorText(e, "Could not load buildings")));
     loadCaptcha();
   }, [loadCaptcha]);
 
@@ -84,10 +78,10 @@ export default function ReportDefect() {
     fd.append("captcha_answer", answer);
     photos.forEach(p => fd.append("photos", p.file, p.file.name));
     try {
-      const r = await api.post("/public/complaints", fd, { headers: { "Content-Type": "multipart/form-data" }, timeout: 60000 });
+      const r = await api.post("/public/complaints", fd, { timeout: 60000 });
       setReference(r.data.reference);
     } catch (err) {
-      setError(errorText(err, "Could not send your report. Please try again."));
+      setError(apiErrorText(err, "Could not send your report. Please try again."));
       loadCaptcha();
     } finally {
       setLoading(false);

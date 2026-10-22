@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { Eye, EyeOff, LogIn, AlertCircle, Megaphone } from "lucide-react";
 import { useAuth } from "../../context/auth.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 import logo from "../../assets/company-logo.png";
 
 export default function Login() {
@@ -28,7 +29,7 @@ export default function Login() {
       toast.success(`Welcome back, ${user.name}!`);
       navigate("/", { replace: true });
     } catch (err) {
-      setError(err.response?.data?.detail || "Invalid email or password");
+      setError(apiErrorText(err, "Invalid email or password"));
     } finally {
       setLoading(false);
     }

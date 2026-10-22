@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 import { exportReportPdf  } from "../../model/pdfGenerator.js";
 import { exportReportDocx } from "../../model/docGenerator.js";
 
@@ -33,7 +34,7 @@ export default function AdminReports() {
   const fetchReports = () => {
     setLoading(true);
     api.get("/reports/all").then(r => setReports(r.data))
-      .catch(() => toast.error("Failed to load reports"))
+      .catch(e => toast.error(apiErrorText(e, "Failed to load reports")))
       .finally(() => setLoading(false));
   };
   useEffect(() => { fetchReports(); }, []);
@@ -49,7 +50,7 @@ export default function AdminReports() {
       if (format === "pdf") await exportReportPdf({ report, inspection, findings, photos, groups, creator, header, rows });
       else                  await exportReportDocx({ report, inspection, findings, photos, groups, creator, header, rows });
       toast.success("Exported as " + format.toUpperCase());
-    } catch (e) { toast.error("Export failed: " + e.message); }
+    } catch (e) { toast.error(apiErrorText(e, `Export failed: ${e.message}`)); }
     finally { setExporting(null); }
   };
 

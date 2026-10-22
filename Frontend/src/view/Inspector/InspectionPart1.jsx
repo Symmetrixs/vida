@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { ChevronRight, Building2 } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 import { floorOptions } from "../../utils/floors.js";
 
 const SS_KEY = "vida_part1_draft";
@@ -68,7 +69,7 @@ export default function InspectionPart1() {
         toast.success("Inspection created");
       }
       navigate("/inspections/new/part2", { state: { inspectionId: inspId } });
-    } catch (err) { toast.error(err.response?.data?.detail || "Failed"); }
+    } catch (err) { toast.error(apiErrorText(err, "Failed")); }
     finally { setLoading(false); }
   };
 

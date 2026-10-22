@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { User, Save, Camera, Lock, Eye, EyeOff, BadgeCheck, Loader2, Phone, Building2, IdCard } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
+import { apiErrorText } from "../../utils/apiError.js";
 import { useAuth } from "../../context/auth.js";
 import { roleBadge, roleLabel, rolesText } from "../../utils/roles.js";
 
@@ -35,10 +36,10 @@ export default function Profile() {
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const r = await api.post("/inspector/avatar", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      const r = await api.post("/inspector/avatar", fd);
       updateUser({ avatar_url: r.data.avatar_url });
       toast.success("Avatar updated");
-    } catch { toast.error("Avatar upload failed"); setAvatarPreview(user?.avatar_url || null); }
+    } catch (e) { toast.error(apiErrorText(e, "Avatar upload failed")); setAvatarPreview(user?.avatar_url || null); }
     finally { setUploading(false); }
   };
 
@@ -49,7 +50,7 @@ export default function Profile() {
       const r = await api.put("/inspector/profile", form);
       updateUser(r.data);
       toast.success("Profile updated");
-    } catch { toast.error("Update failed"); }
+    } catch (e) { toast.error(apiErrorText(e, "Update failed")); }
     finally { setSaving(false); }
   };
 
@@ -63,7 +64,7 @@ export default function Profile() {
       toast.success("Password changed successfully");
       setPwForm({ current: "", next: "", confirm: "" });
     } catch (err) {
-      toast.error(err.response?.data?.detail || "Password change failed");
+      toast.error(apiErrorText(err, "Password change failed"));
     } finally { setPwLoading(false); }
   };
 
