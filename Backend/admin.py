@@ -15,7 +15,7 @@ def get_supabase() -> Client:
 
 require_admin = require_roles("admin")
 
-USER_COLUMNS = "id, name, email, employee_id, is_active, created_at"
+USER_COLUMNS = "id, name, email, employee_id, is_active, status, reject_reason, reviewed_at, created_at"
 
 RoleName = Literal["inspector", "maintenance", "facility_manager", "admin"]
 
@@ -26,6 +26,14 @@ class StaffCreate(BaseModel):
     password: str = Field(min_length=8, max_length=128)
     employee_id: Optional[str] = Field(default=None, max_length=40)
     roles: List[RoleName] = Field(min_length=1)
+
+
+class ApproveBody(BaseModel):
+    roles: List[RoleName] = Field(min_length=1)
+
+
+class RejectBody(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=500)
 
 
 class StaffUpdate(BaseModel):
@@ -75,7 +83,7 @@ def get_stats(admin: dict = Depends(require_admin)):
     users_count = len(supabase.table("users").select("id").execute().data or [])
     buildings_count = len(supabase.table("buildings").select("id").execute().data or [])
     inspections_count = len(supabase.table("inspections").select("id").execute().data or [])
-    findings_count = len(supabase.table("findings").select("id").execute().data or [])
+    findings_count = len(supabase.table("findings").select("id").is_("dismissed_at", "null").execute().data or [])
     reports_count = len(supabase.table("reports").select("id").execute().data or [])
 
     return {
@@ -116,6 +124,9 @@ def create_user(body: StaffCreate, admin: dict = Depends(require_admin)):
         "email":         email,
         "password_hash": hash_password(body.password),
         "is_active":     True,
+        "status":        "approved",
+        "reviewed_by":   admin["id"],
+        "reviewed_at":   now,
         "created_at":    now,
     }
     if employee_id:
@@ -140,9 +151,60 @@ def create_user(body: StaffCreate, admin: dict = Depends(require_admin)):
         "email":       created["email"],
         "employee_id": created.get("employee_id"),
         "is_active":   True,
+        "status":      "approved",
         "created_at":  created.get("created_at"),
         "roles":       roles,
     }
+
+
+def _load_pending(supabase: Client, user_id: str) -> dict:
+    rows = supabase.table("users").select(USER_COLUMNS).eq("id", user_id).execute().data
+    if not rows:
+        raise HTTPException(status_code=404, detail="User not found")
+    if rows[0].get("status") != "pending":
+        raise HTTPException(status_code=409, detail="This registration has already been handled")
+    return rows[0]
+
+
+@router.post("/users/{user_id}/approve")
+def approve_user(user_id: str, body: ApproveBody, admin: dict = Depends(require_admin)):
+    supabase = get_supabase()
+    _load_pending(supabase, user_id)
+    now = datetime.now(timezone.utc).isoformat()
+    roles = _ordered(body.roles)
+    supabase.table("user_roles").delete().eq("user_id", user_id).execute()
+    supabase.table("user_roles").insert([
+        {"user_id": user_id, "role": r, "granted_by": admin["id"], "granted_at": now} for r in roles
+    ]).execute()
+    result = (
+        supabase.table("users")
+        .update({"status": "approved", "reject_reason": None, "reviewed_by": admin["id"], "reviewed_at": now, "updated_at": now})
+        .eq("id", user_id)
+        .eq("status", "pending")
+        .execute()
+    )
+    if not result.data:
+        supabase.table("user_roles").delete().eq("user_id", user_id).execute()
+        raise HTTPException(status_code=409, detail="This registration has already been handled")
+    return _attach_roles(supabase, supabase.table("users").select(USER_COLUMNS).eq("id", user_id).execute().data)[0]
+
+
+@router.post("/users/{user_id}/reject")
+def reject_user(user_id: str, body: RejectBody, admin: dict = Depends(require_admin)):
+    supabase = get_supabase()
+    _load_pending(supabase, user_id)
+    now = datetime.now(timezone.utc).isoformat()
+    reason = (body.reason or "").strip() or None
+    result = (
+        supabase.table("users")
+        .update({"status": "rejected", "reject_reason": reason, "reviewed_by": admin["id"], "reviewed_at": now, "updated_at": now})
+        .eq("id", user_id)
+        .eq("status", "pending")
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=409, detail="This registration has already been handled")
+    return {"id": user_id, "status": "rejected", "reject_reason": reason, "roles": []}
 
 
 @router.put("/users/{user_id}")
@@ -232,7 +294,7 @@ def get_analytics(
     inspections = insp_q.execute().data or []
     insp_ids    = [i["id"] for i in inspections]
 
-    all_findings = supabase.table("findings").select("defect_type, severity, created_at, inspection_id").execute().data or []
+    all_findings = supabase.table("findings").select("defect_type, severity, created_at, inspection_id").is_("dismissed_at", "null").execute().data or []
     findings = [f for f in all_findings if f.get("inspection_id") in insp_ids] if insp_ids else []
 
     defect_counts   = {}

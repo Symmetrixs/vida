@@ -3,20 +3,17 @@ import hmac
 import io
 import os
 import re
-import secrets
 import socket
-import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from jose import JWTError, jwt
+from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from PIL import Image, ImageOps
 from pydantic import EmailStr, TypeAdapter, ValidationError
 from supabase import create_client, Client
 
-from auth import ALGORITHM, SECRET_KEY
+from auth import SECRET_KEY
 
 router = APIRouter()
 
@@ -24,7 +21,6 @@ COMPLAINT_BUCKET = os.getenv("COMPLAINT_BUCKET", "vida-complaints")
 IP_HASH_SALT = os.getenv("IP_HASH_SALT", SECRET_KEY)
 RATE_LIMIT_PER_HOUR = int(os.getenv("COMPLAINT_RATE_LIMIT", "5"))
 TRUSTED_PROXY_HOSTS = [h.strip() for h in os.getenv("TRUSTED_PROXY_HOSTS", "").split(",") if h.strip()]
-CAPTCHA_TTL_SECONDS = 600
 MAX_PHOTOS = 3
 MAX_PHOTO_BYTES = 5 * 1024 * 1024
 MAX_PIXELS = 40_000_000
@@ -37,11 +33,22 @@ UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]
 PHONE_RE = re.compile(r"^[0-9+()\-\s]{6,20}$")
 EMAIL_ADAPTER = TypeAdapter(EmailStr)
 
-_burned_nonces: dict = {}
-
-
 def get_supabase() -> Client:
     return create_client(os.getenv("SUPABASE_URL", ""), os.getenv("SUPABASE_SERVICE_KEY", ""))
+
+
+def list_room_rows(supabase: Client, building_id: str, floor: str) -> list:
+    return (
+        supabase.table("building_rooms")
+        .select("id, name, floor, sort_order")
+        .eq("building_id", building_id)
+        .eq("floor", floor)
+        .order("sort_order")
+        .order("name")
+        .execute()
+        .data
+        or []
+    )
 
 
 def format_reference(ref_no: int) -> str:
@@ -76,45 +83,6 @@ def client_ip(request: Request) -> str:
 
 def hash_ip(ip: str) -> str:
     return hmac.new(IP_HASH_SALT.encode("utf-8"), ip.encode("utf-8"), hashlib.sha256).hexdigest()
-
-
-def _answer_digest(nonce: str, answer: str) -> str:
-    return hmac.new(SECRET_KEY.encode("utf-8"), f"{nonce}:{answer}".encode("utf-8"), hashlib.sha256).hexdigest()
-
-
-def _burn_nonce(nonce: str) -> None:
-    now = time.time()
-    for key in [k for k, exp in _burned_nonces.items() if exp < now]:
-        _burned_nonces.pop(key, None)
-    _burned_nonces[nonce] = now + CAPTCHA_TTL_SECONDS
-
-
-def issue_captcha() -> dict:
-    a = secrets.randbelow(40) + 10
-    b = secrets.randbelow(9) + 1
-    nonce = secrets.token_urlsafe(16)
-    token = jwt.encode({
-        "purpose": "captcha",
-        "nonce":   nonce,
-        "digest":  _answer_digest(nonce, str(a + b)),
-        "exp":     datetime.now(timezone.utc) + timedelta(seconds=CAPTCHA_TTL_SECONDS),
-    }, SECRET_KEY, algorithm=ALGORITHM)
-    return {"question": f"{a} + {b}", "token": token}
-
-
-def verify_captcha(token: str, answer: str) -> str:
-    invalid = HTTPException(status_code=400, detail="Captcha answer is wrong or expired. Please try a new one.")
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError:
-        raise invalid
-    nonce = payload.get("nonce")
-    if payload.get("purpose") != "captcha" or not nonce or nonce in _burned_nonces:
-        raise invalid
-    _burn_nonce(nonce)
-    if not hmac.compare_digest(payload.get("digest", ""), _answer_digest(nonce, answer.strip())):
-        raise invalid
-    return nonce
 
 
 def clean_image(data: bytes) -> dict:
@@ -182,9 +150,11 @@ def public_buildings():
     return result.data or []
 
 
-@router.get("/captcha")
-def captcha():
-    return issue_captcha()
+@router.get("/buildings/{building_id}/rooms")
+def public_rooms(building_id: str, floor: str = Query(..., min_length=1, max_length=40)):
+    if not UUID_RE.match(building_id or ""):
+        raise HTTPException(status_code=400, detail="Please choose a building.")
+    return list_room_rows(get_supabase(), building_id, floor)
 
 
 @router.post("/complaints", status_code=201)
@@ -194,8 +164,6 @@ async def submit_complaint(
     floor: str = Form(...),
     location_note: str = Form(...),
     description: str = Form(...),
-    captcha_token: str = Form(...),
-    captcha_answer: str = Form(...),
     reporter_name: str = Form(""),
     reporter_email: str = Form(""),
     reporter_phone: str = Form(""),
@@ -208,8 +176,6 @@ async def submit_complaint(
 
     if website.strip():
         raise HTTPException(status_code=400, detail="Submission rejected.")
-
-    nonce = verify_captcha(captcha_token, captcha_answer)
 
     if not UUID_RE.match(building_id or ""):
         raise HTTPException(status_code=400, detail="Please choose a building.")
@@ -250,11 +216,8 @@ async def submit_complaint(
             "reporter_email": reporter_email,
             "reporter_phone": reporter_phone,
             "ip_hash":        ip_hash,
-            "captcha_nonce":  nonce,
         }).execute()
-    except Exception as e:
-        if getattr(e, "code", "") == "23505":
-            raise HTTPException(status_code=400, detail="Captcha answer is wrong or expired. Please try a new one.")
+    except Exception:
         raise HTTPException(status_code=500, detail="Could not save your report. Please try again.")
     if not inserted.data:
         raise HTTPException(status_code=500, detail="Could not save your report. Please try again.")

@@ -76,8 +76,8 @@ export default function SharedReports() {
     <div className="space-y-6">
       <div className="page-header flex items-center justify-between">
         <div>
-          <h1 className="page-title flex items-center gap-2"><Share2 size={22}/> Shared Reports</h1>
-          <p className="page-subtitle">Reports shared with you by other inspectors and facility managers</p>
+          <h1 className="page-title flex items-center gap-2"><Share2 size={22}/> Shared with Me</h1>
+          <p className="page-subtitle">Reports other inspectors have shared with you</p>
         </div>
         <button onClick={() => setShowShare(s => !s)} className="btn-primary flex items-center gap-2">
           <Share2 size={15}/> Share Report

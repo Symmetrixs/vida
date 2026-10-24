@@ -130,15 +130,19 @@ export default function AnnotationModal({ open, onClose, photos: photosProp, onS
     const ly = y + 8;
     const lw = tw + 16;
     const lh = 24;
-    ctx.fillStyle = "rgba(0,0,0,0.75)";
+    ctx.fillStyle = "rgba(255,255,255,0.92)";
+    ctx.strokeStyle = "#334155";
+    ctx.lineWidth = 1;
     if (ctx.roundRect) {
       ctx.beginPath();
       ctx.roundRect(lx, ly, lw, lh, 6);
       ctx.fill();
+      ctx.stroke();
     } else {
       ctx.fillRect(lx, ly, lw, lh);
+      ctx.strokeRect(lx, ly, lw, lh);
     }
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = "#0f172a";
     ctx.fillText(label, lx + 8, ly + lh / 2);
     ctx.restore();
   };
@@ -171,11 +175,13 @@ export default function AnnotationModal({ open, onClose, photos: photosProp, onS
       const s = eff.scale || 1;
       (eff.detections || []).forEach(d => {
         const c = DEFECT_COLORS[d.label] || "#6366f1";
-        const { xmin = 0, ymin = 0, xmax = 0, ymax = 0 } = d.box || {};
-        const dx = eff.x + xmin * s;
-        const dy = eff.y + ymin * s;
-        const dw = (xmax - xmin) * s;
-        const dh = (ymax - ymin) * s;
+        const { xmin = 0, ymin = 0, xmax = 0, ymax = 0, width, height } = d.box || {};
+        const kx = s * (width ? eff.naturalWidth / width : 1);
+        const ky = s * (height ? eff.naturalHeight / height : 1);
+        const dx = eff.x + xmin * kx;
+        const dy = eff.y + ymin * ky;
+        const dw = (xmax - xmin) * kx;
+        const dh = (ymax - ymin) * ky;
         ctx.save();
         ctx.strokeStyle = c;
         ctx.lineWidth = 3;

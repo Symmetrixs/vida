@@ -27,18 +27,12 @@ def _image_bytes(fmt="JPEG", size=(64, 48), exif=False):
     return buffer.getvalue()
 
 
-def _solve(captcha):
-    return str(sum(int(part) for part in captcha["question"].split("+")))
-
-
-def _form(captcha, **overrides):
+def _form(**overrides):
     data = {
         "building_id":    BUILDING_ID,
         "floor":          "Floor 1",
         "location_note":  "Corridor near BK-12",
         "description":    "Large crack on the wall next to the door",
-        "captcha_token":  captcha["token"],
-        "captcha_answer": _solve(captcha),
     }
     data.update(overrides)
     return data
@@ -60,7 +54,7 @@ def fake_db(monkeypatch):
 
 def test_public_routes_never_require_login_or_run_ai():
     public_routes = [r for r in app.routes if isinstance(r, APIRoute) and r.path.startswith("/public")]
-    assert {r.path for r in public_routes} == {"/public/buildings", "/public/captcha", "/public/complaints"}
+    assert {r.path for r in public_routes} == {"/public/buildings", "/public/buildings/{building_id}/rooms", "/public/complaints"}
     for route in public_routes:
         calls = _dependency_calls(route.dependant)
         assert get_current_user not in calls
@@ -77,17 +71,14 @@ def test_complaint_inbox_rejects_inspectors(client):
         app.dependency_overrides.pop(get_current_user, None)
 
 
-def test_captcha_accepts_once_and_burns_wrong_guesses(client):
-    captcha = client.get("/public/captcha").json()
-    assert public.verify_captcha(captcha["token"], _solve(captcha))
-    with pytest.raises(HTTPException):
-        public.verify_captcha(captcha["token"], _solve(captcha))
-
-    other = public.issue_captcha()
-    with pytest.raises(HTTPException):
-        public.verify_captcha(other["token"], "0")
-    with pytest.raises(HTTPException):
-        public.verify_captcha(other["token"], _solve(other))
+def test_public_rooms_list_one_floor_without_login(client, fake_db):
+    fake_db.responses[("building_rooms", "select")] = [{"id": "r1", "name": "BK15", "floor": "Floor 1", "sort_order": 0}]
+    response = client.get(f"/public/buildings/{BUILDING_ID}/rooms", params={"floor": "Floor 1"})
+    assert response.status_code == 200
+    assert response.json()[0]["name"] == "BK15"
+    query = fake_db.queries[-1]
+    assert query.table == "building_rooms" and query.filters == {"building_id": BUILDING_ID, "floor": "Floor 1"}
+    assert client.get("/public/buildings/not-a-uuid/rooms", params={"floor": "Floor 1"}).status_code == 400
 
 
 def test_clean_image_strips_exif_and_rejects_non_images():
@@ -104,8 +95,7 @@ def test_clean_image_strips_exif_and_rejects_non_images():
 
 def test_submit_is_rate_limited(client, fake_db):
     fake_db.recent = 5
-    captcha = public.issue_captcha()
-    response = client.post("/public/complaints", data=_form(captcha), files=[("photos", ("a.jpg", _image_bytes(), "image/jpeg"))])
+    response = client.post("/public/complaints", data=_form(), files=[("photos", ("a.jpg", _image_bytes(), "image/jpeg"))])
     assert response.status_code == 429
     assert "complaints" not in fake_db.inserted
 
@@ -128,18 +118,18 @@ def test_client_ip_trusts_the_header_only_from_nginx(monkeypatch):
 
 def test_submit_rejects_honeypot_and_bad_photos(client, fake_db):
     jpeg = ("a.jpg", _image_bytes(), "image/jpeg")
-    response = client.post("/public/complaints", data=_form(public.issue_captcha(), website="spam"), files=[("photos", jpeg)])
+    response = client.post("/public/complaints", data=_form(website="spam"), files=[("photos", jpeg)])
     assert response.status_code == 400
 
-    response = client.post("/public/complaints", data=_form(public.issue_captcha()), files=[("photos", jpeg)] * 4)
+    response = client.post("/public/complaints", data=_form(), files=[("photos", jpeg)] * 4)
     assert response.status_code == 400
 
     big = ("big.jpg", b"\xff" * (5 * 1024 * 1024 + 10), "image/jpeg")
-    response = client.post("/public/complaints", data=_form(public.issue_captcha()), files=[("photos", big)])
+    response = client.post("/public/complaints", data=_form(), files=[("photos", big)])
     assert response.status_code == 413
 
     fake = ("fake.jpg", b"#!/bin/sh\necho hi\n", "image/jpeg")
-    response = client.post("/public/complaints", data=_form(public.issue_captcha()), files=[("photos", fake)])
+    response = client.post("/public/complaints", data=_form(), files=[("photos", fake)])
     assert response.status_code == 400
     assert "complaints" not in fake_db.inserted
 
@@ -154,12 +144,13 @@ def test_submit_stores_pending_complaint_without_ai(client, fake_db, monkeypatch
         ("photos", ("a.jpg", _image_bytes(exif=True), "image/jpeg")),
         ("photos", ("b.png", _image_bytes("PNG"), "image/png")),
     ]
-    response = client.post("/public/complaints", data=_form(public.issue_captcha(), reporter_email="someone@example.com"), files=files)
+    response = client.post("/public/complaints", data=_form(reporter_email="someone@example.com"), files=files)
     assert response.status_code == 201
     assert response.json() == {"reference": "VIDA-C-0042", "status": "pending"}
 
     row = fake_db.inserted["complaints"][0]
     assert "status" not in row
+    assert "captcha_nonce" not in row
     assert row["ip_hash"] != "testclient" and len(row["ip_hash"]) == 64
     assert len(fake_db.inserted["complaint_photos"]) == 2
     assert {bucket for bucket, _ in fake_db.uploads} == {"vida-complaints"}

@@ -8,7 +8,7 @@ export default function InspectionPart2() {
   const { state }    = useLocation();
   const navigate     = useNavigate();
   const inspectionId = state?.inspectionId;
-  const [photoState, setPhotoState] = useState({ groups: [], aiResults: {}, savedAnnot: {} });
+  const [photoState, setPhotoState] = useState({ groups: [], savedAnnot: {}, unscannedIds: [], photoCount: 0 });
 
   useEffect(() => {
     if (inspectionId) sessionStorage.setItem("vida_current_inspId", inspectionId);

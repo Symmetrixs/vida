@@ -71,13 +71,6 @@ def test_login_refuses_accounts_without_roles_or_deactivated(client, monkeypatch
     assert response.status_code == 403 and response.json()["detail"] == "Account deactivated"
 
 
-def test_self_registration_and_approval_endpoints_are_gone(client, login):
-    assert client.post("/auth/register", json={"name": "X", "email": "x@example.com", "password": "secret123"}).status_code == 404
-    login(ADMIN)
-    assert client.get("/admin/pending-approvals").status_code == 404
-    assert client.patch("/admin/users/u1/approve").status_code in (404, 405)
-
-
 def test_current_user_roles_come_from_the_database_not_the_token(client, monkeypatch):
     token = auth.create_access_token({"sub": "u1", "roles": ["admin"]})
     headers = {"Authorization": f"Bearer {token}"}

@@ -397,7 +397,10 @@ export default function RepairJob() {
                   <p className="text-xs text-slate-400">No findings on this photo</p>
                 ) : findingsByPhoto[p.id].map(f => (
                   <div key={f.id} className="flex items-center justify-between gap-2 text-xs">
-                    <span className="capitalize text-slate-700 dark:text-slate-300">{defectLabel(f.defect_type)}{f.location_description ? ` · ${f.location_description}` : ""}</span>
+                    <span className="text-slate-700 dark:text-slate-300">
+                      <span className="capitalize">{defectLabel(f.defect_type)}{f.location_description ? ` · ${f.location_description}` : ""}</span>
+                      <span className="block text-[11px] text-slate-400">{f.source === "ai" ? `AI, ${Math.round((f.confidence || 0) * 100)}% confidence` : "Logged manually"}</span>
+                    </span>
                     <span className={SEVERITY_CLASS[f.severity] || "badge-gray"}>{f.severity}</span>
                   </div>
                 ))}

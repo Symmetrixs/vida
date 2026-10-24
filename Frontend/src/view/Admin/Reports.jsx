@@ -8,8 +8,7 @@ import {
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
 import { apiErrorText } from "../../utils/apiError.js";
-import { exportReportPdf  } from "../../model/pdfGenerator.js";
-import { exportReportDocx } from "../../model/docGenerator.js";
+import { exportReport } from "../../report/exportReport.js";
 
 const STATUS_OPTS = ["all", "draft", "published"];
 
@@ -47,8 +46,7 @@ export default function AdminReports() {
       const { report, inspection, findings, photos, groups, creator } = res.data;
       const header = { title: report.title, summary: report.summary || "", recommendations: report.recommendations || "" };
       const rows   = report.row_data || {};
-      if (format === "pdf") await exportReportPdf({ report, inspection, findings, photos, groups, creator, header, rows });
-      else                  await exportReportDocx({ report, inspection, findings, photos, groups, creator, header, rows });
+      await exportReport(format, { report, inspection, findings, photos, groups, creator, header, rows });
       toast.success("Exported as " + format.toUpperCase());
     } catch (e) { toast.error(apiErrorText(e, `Export failed: ${e.message}`)); }
     finally { setExporting(null); }

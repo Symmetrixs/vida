@@ -1,40 +1,25 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  FileText, ArrowLeft, Send, Lock,
+  FileText, ArrowLeft, Send, Lock, Save, Eye, X,
   Sparkles, ChevronDown, ChevronUp,
   FileDown, File, Loader2, AlertTriangle, CheckCircle,
-  Building2, Calendar, User, MapPin, Cloud, Layers, Pencil,
+  Building2, Calendar, User, MapPin, Cloud, Layers, Pencil, Hash,
 } from "lucide-react";
 import api from "../../api/axios.js";
 import { useAuth } from "../../context/auth.js";
 import toast from "react-hot-toast";
 import { apiErrorText } from "../../utils/apiError.js";
-import { exportReportPdf } from "../../model/pdfGenerator.js";
-import { exportReportDocx } from "../../model/docGenerator.js";
+import { exportReport } from "../../report/exportReport.js";
+import { buildReportModel, prepareImages } from "../../report/reportModel.js";
+import ReportDocument from "../../report/ReportDocument.jsx";
+import { DEFECT_COLORS, DEFECT_TYPES, RECOMMENDED_ACTION, SEVERITIES, capitalise, defectLabel, findingSource, findingsByPhoto, severityLabel } from "../../utils/findings.js";
+import { fmtDate } from "../../utils/reportFormat.js";
+import { usePhotoScanner } from "../../utils/usePhotoScan.js";
+import { FindingList, PhotoWithBoxes, ScanAllButton, ScanButton, ScanStatus } from "../../components/PhotoScan.jsx";
 
-const DEFECT_COLORS = {
-  crack:         "#ef4444",
-  faded_paint:   "#f59e0b",
-  spalling:      "#8b5cf6",
-  water_stain:   "#3b82f6",
-  rust:          "#b45309",
-  mold:          "#16a34a",
-  efflorescence: "#64748b",
-};
-
-const REMEDIATION_MAP = {
-  crack:         "Apply appropriate crack filler or epoxy injection. For structural cracks, engage a licensed structural engineer for assessment. Monitor and re-inspect within 30 days.",
-  faded_paint:   "Clean the surface thoroughly and apply a compatible primer followed by two coats of weather-resistant exterior paint. Ensure proper surface preparation to maximise paint adhesion and longevity.",
-  spalling:      "Remove all loose and delaminated concrete using a chipping hammer. Apply a bonding agent and patch with polymer-modified repair mortar. Allow full curing before applying a protective coating.",
-  water_stain:   "Identify and rectify the source of water ingress before treating the surface. Apply a waterproof sealant or membrane after drying. Inspect drainage systems, roof flashing, and pipe joints in the vicinity.",
-  rust:          "Mechanically abrade corroded areas to bare metal (minimum Sa 2.5). Apply a zinc-rich rust-inhibiting primer followed by a compatible topcoat. Investigate and address the source of moisture exposure.",
-  mold:          "Apply an anti-fungal biocide solution and scrub the affected surface. Allow sufficient drying time before applying a mould-resistant paint or coating. Improve ventilation and address any moisture sources to prevent recurrence.",
-  efflorescence: "Dry-brush or wet-clean the affected area to remove salt deposits. Allow complete drying and apply a breathable masonry sealant to reduce moisture migration through the substrate.",
-};
-
-const SEVERITY_LABEL = { low: "Low", medium: "Medium", high: "High", critical: "Critical" };
+const NONE = [];
 
 const isLocked = (created_at) => {
   if (!created_at) return false;
@@ -47,71 +32,34 @@ function InfoRow({ label, value, icon: Icon }) {
     <div className="flex items-start gap-2 text-sm">
       {Icon && <Icon size={14} className="text-slate-400 mt-0.5 shrink-0"/>}
       <span className="text-slate-500 dark:text-slate-400 shrink-0 w-28">{label}</span>
-      <span className="text-slate-800 dark:text-slate-200 font-medium capitalize">{value}</span>
+      <span className="text-slate-800 dark:text-slate-200 font-medium break-words min-w-0">{value}</span>
     </div>
   );
 }
 
-function GroupRow({ group, photos, findings, rowData, onChange, locked, onAIFill, aiFilling, onAddManualFinding }) {
-  const [expanded,       setExpanded]       = useState(true);
-  const [editingName,    setEditingName]     = useState(false);
-  const [nameInput,      setNameInput]       = useState(rowData?.group_name || "");
-  const [showDefectPicker, setShowDefectPicker] = useState(false);
-  const [pickerType,     setPickerType]      = useState("crack");
-  const [pickerSeverity, setPickerSeverity]  = useState("medium");
-  const [addingDefect,   setAddingDefect]    = useState(false);
+function autofillText(group, groupPhotos, byPhoto) {
+  const lines = [];
+  groupPhotos.forEach((photo, i) => {
+    (byPhoto[photo.id] || NONE).forEach(f => {
+      lines.push(`- Photo ${group.label}.${i + 1}: ${defectLabel(f.defect_type)} (${severityLabel(f.severity)}), ${findingSource(f)}`);
+    });
+  });
+  const types = [...new Set(groupPhotos.flatMap(p => (byPhoto[p.id] || NONE).map(f => f.defect_type)))];
+  const remediation = types.map(t => `${defectLabel(t)}: ${RECOMMENDED_ACTION[t] || "Inspect and repair as required."}`).join("\n\n");
+  return { findings: lines.join("\n"), remediation };
+}
 
-  const DEFECT_OPTIONS = [
-    { value: "crack",         label: "Crack"         },
-    { value: "faded_paint",   label: "Faded Paint"   },
-    { value: "spalling",      label: "Spalling"      },
-    { value: "water_stain",   label: "Water Stain"   },
-    { value: "rust",          label: "Rust"           },
-    { value: "mold",          label: "Mold"           },
-    { value: "efflorescence", label: "Efflorescence"  },
-  ];
-
-  const SEVERITY_OPTIONS = [
-    { value: "low",      label: "Low"      },
-    { value: "medium",   label: "Medium"   },
-    { value: "high",     label: "High"     },
-    { value: "critical", label: "Critical" },
-  ];
-
-  const handleAddManualDefect = async () => {
-    setAddingDefect(true);
-    try {
-      await onAddManualFinding(group.id, group.photoIds[0] || null, pickerType, pickerSeverity);
-      setShowDefectPicker(false);
-      setPickerType("crack");
-      setPickerSeverity("medium");
-    } finally { setAddingDefect(false); }
-  };
+function GroupRow({ group, photos, byPhoto, rowData, onChange, locked, canEditFindings, scanner, onAutofill, onFindingChanged, onFindingRemoved, onAddManualFinding }) {
+  const [expanded,    setExpanded]    = useState(true);
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput,   setNameInput]   = useState(rowData?.group_name || "");
+  const [picker,      setPicker]      = useState(null);
+  const [adding,      setAdding]      = useState(false);
 
   const groupPhotos   = group.photoIds.map(id => photos.find(p => p.id === id)).filter(Boolean);
-  const groupFindings = findings.filter(f => group.photoIds.includes(f.photo_id));
+  const findingCount  = groupPhotos.reduce((s, p) => s + (byPhoto[p.id] || NONE).length, 0);
   const hasAnnotation = !!group.annotation?.canvas_data;
-  const displayName = rowData?.group_name || group.name || ("Group " + group.label);
-
-  const photoIndexMap = {};
-  groupPhotos.forEach((photo, pIdx) => { photoIndexMap[photo.id] = pIdx + 1; });
-
-  const numberedFindings = groupFindings.map((f, fi) => {
-    const pNum = f.photo_id && photoIndexMap[f.photo_id]
-      ? group.label + "." + photoIndexMap[f.photo_id]
-      : group.label + "." + (fi + 1);
-    return { ...f, photoNum: pNum };
-  });
-
-  const autoFindings = numberedFindings.map(f =>
-    "• [Photo " + f.photoNum + "] " + (f.defect_type || "").replace(/_/g, " ") +
-    " (" + (SEVERITY_LABEL[f.severity] || f.severity) + "): Confidence " + Math.round((f.confidence || 0) * 100) + "%"
-  ).join("\n");
-
-  const autoRemediation = [...new Set(groupFindings.map(f => f.defect_type))]
-    .map(dt => REMEDIATION_MAP[dt] ? (dt.replace(/_/g, " ").replace(/^\w/, c => c.toUpperCase()) + ":\n" + REMEDIATION_MAP[dt]) : null)
-    .filter(Boolean)
-    .join("\n\n");
+  const displayName   = rowData?.group_name || group.name || ("Group " + group.label);
 
   const commitName = () => {
     const trimmed = nameInput.trim() || ("Group " + group.label);
@@ -120,16 +68,18 @@ function GroupRow({ group, photos, findings, rowData, onChange, locked, onAIFill
     api.patch("/groups/group/" + group.id, { name: trimmed }).catch(() => {});
   };
 
+  const addManual = async () => {
+    setAdding(true);
+    try {
+      await onAddManualFinding(picker.photoId, picker.type, picker.severity);
+      setPicker(null);
+    } finally { setAdding(false); }
+  };
+
   return (
     <div className="border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden">
-      <button
-        className="w-full flex items-center gap-3 px-4 py-3 bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-left"
-        onClick={() => setExpanded(e => !e)}
-      >
-        <span className="w-7 h-7 rounded-full bg-primary-600 text-white text-xs font-bold flex items-center justify-center shrink-0">
-          {group.label}
-        </span>
-
+      <div className="w-full flex items-center gap-3 px-4 py-3 bg-slate-50 dark:bg-slate-800/50 flex-wrap">
+        <span className="w-7 h-7 rounded-full bg-primary-600 text-white text-xs font-bold flex items-center justify-center shrink-0">{group.label}</span>
         {editingName ? (
           <input
             autoFocus
@@ -137,186 +87,128 @@ function GroupRow({ group, photos, findings, rowData, onChange, locked, onAIFill
             onChange={e => setNameInput(e.target.value)}
             onBlur={commitName}
             onKeyDown={e => { if (e.key === "Enter") commitName(); if (e.key === "Escape") setEditingName(false); }}
-            onClick={e => e.stopPropagation()}
             className="flex-1 bg-white dark:bg-slate-900 border border-primary-400 rounded-lg px-2 py-0.5 text-sm font-semibold text-slate-800 dark:text-slate-100 outline-none focus:ring-2 focus:ring-primary-500"
           />
         ) : (
-          <span className="font-semibold text-sm text-slate-700 dark:text-slate-200 flex-1 flex items-center gap-2">
-            {displayName}
+          <span className="font-semibold text-sm text-slate-700 dark:text-slate-200 flex-1 flex items-center gap-2 min-w-0">
+            <span className="truncate">{displayName}</span>
             {!locked && (
-              <button
-                onClick={e => { e.stopPropagation(); setNameInput(rowData?.group_name || ""); setEditingName(true); }}
-                className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-primary-600 transition-colors"
-                title="Rename group"
-              >
+              <button onClick={() => { setNameInput(rowData?.group_name || ""); setEditingName(true); }} className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-primary-600 transition-colors" title="Rename group">
                 <Pencil size={11}/>
               </button>
             )}
           </span>
         )}
-
         <span className="text-xs text-slate-400 shrink-0">
           {groupPhotos.length} photo{groupPhotos.length !== 1 ? "s" : ""}
-          {hasAnnotation && " · annotated"}
-          {groupFindings.length > 0 && " · " + groupFindings.length + " finding" + (groupFindings.length !== 1 ? "s" : "")}
+          {hasAnnotation && ", annotated"}
+          {findingCount > 0 && `, ${findingCount} finding${findingCount !== 1 ? "s" : ""}`}
         </span>
-
+        {canEditFindings && (
+          <ScanAllButton photos={groupPhotos} countFor={id => (byPhoto[id] || NONE).length} scanner={scanner} label="Scan all"/>
+        )}
         {!locked && (
           <button
-            onClick={e => { e.stopPropagation(); onAIFill(group.id, autoFindings, autoRemediation); }}
-            disabled={aiFilling || groupFindings.length === 0}
+            onClick={() => onAutofill(group, groupPhotos)}
+            disabled={findingCount === 0}
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 text-xs font-medium hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors disabled:opacity-40 shrink-0"
-            title={groupFindings.length === 0 ? "No AI findings to autofill" : "AI autofill from scan results"}
+            title={findingCount === 0 ? "No findings to fill in from" : "Fill the text boxes from the findings"}
           >
-            {aiFilling ? <Loader2 size={11} className="animate-spin"/> : <Sparkles size={11}/>}
-            AI Autofill
+            <Sparkles size={11}/> Autofill from findings
           </button>
         )}
-        {expanded ? <ChevronUp size={15} className="text-slate-400 shrink-0"/> : <ChevronDown size={15} className="text-slate-400 shrink-0"/>}
-      </button>
+        <button onClick={() => setExpanded(e => !e)} className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700" title={expanded ? "Collapse" : "Expand"}>
+          {expanded ? <ChevronUp size={15} className="text-slate-400"/> : <ChevronDown size={15} className="text-slate-400"/>}
+        </button>
+      </div>
 
       <AnimatePresence initial={false}>
         {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
-          >
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
             <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-100 dark:divide-slate-800">
               <div className="p-4 space-y-3">
-                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Photographs</p>
-                {hasAnnotation ? (
+                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Photographs and findings</p>
+                {hasAnnotation && (
                   <div className="rounded-xl overflow-hidden border border-emerald-200 dark:border-emerald-800">
-                    <img src={group.annotation.canvas_data} alt="annotated" className="w-full object-contain bg-slate-950 max-h-56"/>
-                    <p className="text-[10px] text-emerald-600 dark:text-emerald-400 text-center py-1 bg-emerald-50 dark:bg-emerald-900/20">
-                      Annotated canvas — {displayName}
+                    <img src={group.annotation.canvas_data} alt="annotated" className="w-full object-contain bg-white max-h-56"/>
+                    <p className="text-[10px] text-emerald-700 dark:text-emerald-400 text-center py-1 bg-emerald-50 dark:bg-emerald-900/20">
+                      Annotated view. The AI scans the original photos below, one by one.
                     </p>
                   </div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-2">
-                    {groupPhotos.map((photo, idx) => (
-                      <div key={photo.id} className="rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 relative">
-                        <img src={photo.url} alt={"photo " + (idx + 1)} className="w-full aspect-video object-cover"/>
-                        <span className="absolute top-1 left-1 text-[9px] font-bold bg-black/60 text-white px-1.5 py-0.5 rounded-full">
-                          {group.label}.{idx + 1}
-                        </span>
-                      </div>
-                    ))}
-                    {groupPhotos.length === 0 && (
-                      <p className="col-span-2 text-xs text-slate-400 text-center py-4">No photos in this group</p>
-                    )}
-                  </div>
                 )}
-
-                {numberedFindings.length > 0 && (
-                  <div className="space-y-2 pt-1">
-                    <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">AI Detections</p>
-                    {numberedFindings.map((f, i) => (
-                      <div key={f.id || i} className="rounded-lg overflow-hidden border border-black/10">
-                        <div className="flex items-center gap-1.5 px-2 py-1 bg-black/30">
-                          <span className="text-[10px] font-bold text-white/70 uppercase tracking-wide">Photo</span>
-                          <span className="text-[11px] font-black text-white bg-white/20 px-1.5 py-0.5 rounded-md leading-none">{f.photoNum}</span>
-                        </div>
-                        <div className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-white" style={{ background: DEFECT_COLORS[f.defect_type] || "#6366f1" }}>
-                          <span className="font-semibold capitalize flex-1">{(f.defect_type || "").replace(/_/g, " ")}</span>
-                          <span className="opacity-80">{SEVERITY_LABEL[f.severity] || f.severity}</span>
-                          {f.confidence && <span className="opacity-70">{Math.round(f.confidence * 100)}%</span>}
-                        </div>
+                {groupPhotos.length === 0 && <p className="text-xs text-slate-400 text-center py-4">No photos in this group</p>}
+                {groupPhotos.map((photo, idx) => {
+                  const pf = byPhoto[photo.id] || NONE;
+                  return (
+                    <div key={photo.id} className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+                      <PhotoWithBoxes photo={photo} findings={pf} className="aspect-video bg-slate-100 dark:bg-slate-800">
+                        <span className="absolute top-1 left-1 text-[10px] font-bold bg-white/90 text-slate-800 px-1.5 py-0.5 rounded-full shadow">{group.label}.{idx + 1}</span>
+                      </PhotoWithBoxes>
+                      <div className="p-2 space-y-1.5">
+                        <ScanStatus photo={photo} findings={pf} scanning={!!scanner.scanning[photo.id]} failed={scanner.failed[photo.id]}/>
+                        <FindingList findings={pf} editable={canEditFindings} onChanged={onFindingChanged} onRemoved={onFindingRemoved}/>
+                        {canEditFindings && (
+                          <ScanButton photo={photo} scanning={!!scanner.scanning[photo.id]} failed={scanner.failed[photo.id]} disabled={!!scanner.progress}
+                            onScan={() => scanner.scanPhoto(photo, pf.length)}/>
+                        )}
                       </div>
-                    ))}
-                  </div>
-                )}
+                    </div>
+                  );
+                })}
 
-                {!locked && (
-                  <div className="pt-1">
-                    {!showDefectPicker ? (
-                      <button
-                        onClick={() => setShowDefectPicker(true)}
-                        className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border-2 border-dashed border-slate-300 dark:border-slate-600 text-xs text-slate-400 hover:border-primary-400 hover:text-primary-600 dark:hover:border-primary-500 dark:hover:text-primary-400 transition-colors"
-                      >
-                        <span className="text-base leading-none">+</span> Log defect manually
-                      </button>
-                    ) : (
-                      <div className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-                        <div className="px-3 py-2 bg-slate-50 dark:bg-slate-800/60 flex items-center justify-between">
-                          <p className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wide">Log Defect</p>
-                          <button onClick={() => setShowDefectPicker(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs">✕</button>
-                        </div>
-                        <div className="p-3 space-y-2.5">
-                          <div>
-                            <label className="text-[10px] text-slate-400 mb-1 block uppercase tracking-wide">Defect Type</label>
-                            <div className="grid grid-cols-2 gap-1">
-                              {DEFECT_OPTIONS.map(o => (
-                                <button
-                                  key={o.value}
-                                  onClick={() => setPickerType(o.value)}
-                                  className={"px-2 py-1.5 rounded-lg text-xs font-semibold text-left transition-all " + (
-                                    pickerType === o.value
-                                      ? "text-white"
-                                      : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
-                                  )}
-                                  style={pickerType === o.value ? { background: DEFECT_COLORS[o.value] } : {}}
-                                >
-                                  {o.label}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                          <div>
-                            <label className="text-[10px] text-slate-400 mb-1 block uppercase tracking-wide">Severity</label>
-                            <div className="flex gap-1">
-                              {SEVERITY_OPTIONS.map(o => (
-                                <button
-                                  key={o.value}
-                                  onClick={() => setPickerSeverity(o.value)}
-                                  className={"flex-1 py-1.5 rounded-lg text-[11px] font-semibold transition-all " + (
-                                    pickerSeverity === o.value
-                                      ? "bg-slate-700 text-white dark:bg-slate-200 dark:text-slate-900"
-                                      : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
-                                  )}
-                                >
-                                  {o.label}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                          <button
-                            onClick={handleAddManualDefect}
-                            disabled={addingDefect}
-                            className="w-full py-2 rounded-lg text-xs font-semibold text-white transition-colors"
-                            style={{ background: DEFECT_COLORS[pickerType] || "#6366f1" }}
-                          >
-                            {addingDefect ? "Adding…" : "Add to Database"}
-                          </button>
-                        </div>
+                {canEditFindings && groupPhotos.length > 0 && (
+                  picker ? (
+                    <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wide">Log a finding manually</p>
+                        <button onClick={() => setPicker(null)} className="text-slate-400 hover:text-slate-600"><X size={13}/></button>
                       </div>
-                    )}
-                  </div>
+                      <select value={picker.photoId} onChange={e => setPicker(p => ({ ...p, photoId: e.target.value }))} className="input text-xs py-1.5">
+                        {groupPhotos.map((p, i) => <option key={p.id} value={p.id}>Photo {group.label}.{i + 1}</option>)}
+                      </select>
+                      <div className="grid grid-cols-2 gap-2">
+                        <select value={picker.type} onChange={e => setPicker(p => ({ ...p, type: e.target.value }))} className="input text-xs py-1.5">
+                          {DEFECT_TYPES.map(t => <option key={t} value={t}>{defectLabel(t)}</option>)}
+                        </select>
+                        <select value={picker.severity} onChange={e => setPicker(p => ({ ...p, severity: e.target.value }))} className="input text-xs py-1.5">
+                          {SEVERITIES.map(s => <option key={s} value={s}>{severityLabel(s)}</option>)}
+                        </select>
+                      </div>
+                      <button onClick={addManual} disabled={adding} className="btn-primary w-full text-xs py-1.5 justify-center">{adding ? "Adding..." : "Add finding"}</button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setPicker({ photoId: groupPhotos[0].id, type: "crack", severity: "medium" })}
+                      className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border-2 border-dashed border-slate-300 dark:border-slate-600 text-xs text-slate-400 hover:border-primary-400 hover:text-primary-600 transition-colors"
+                    >
+                      + Log a finding manually
+                    </button>
+                  )
                 )}
               </div>
 
               <div className="p-4 space-y-3">
-                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Findings & Remediation</p>
+                <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Findings and Remediation</p>
                 <div>
-                  <label className="text-[11px] text-slate-400 mb-1 block">Observed Defects & Findings</label>
+                  <label className="text-[11px] text-slate-400 mb-1 block">Observed defects</label>
                   <textarea
                     value={rowData?.findings_text || ""}
                     onChange={e => onChange(group.id, "findings_text", e.target.value)}
                     disabled={locked}
                     className="input resize-none text-sm w-full"
                     rows={5}
-                    placeholder={"Describe the observed defects, their location, extent, and condition for " + displayName + "…"}
+                    placeholder={"Describe the observed defects, their location, extent and condition for " + displayName}
                   />
                 </div>
                 <div>
-                  <label className="text-[11px] text-slate-400 mb-1 block">Recommended Remediation Works</label>
+                  <label className="text-[11px] text-slate-400 mb-1 block">Recommended works</label>
                   <textarea
                     value={rowData?.remediation || ""}
                     onChange={e => onChange(group.id, "remediation", e.target.value)}
                     disabled={locked}
                     className="input resize-none text-sm w-full"
                     rows={6}
-                    placeholder="Detail the corrective actions, materials, and procedures required to address the identified defects…"
+                    placeholder="Detail the corrective actions, materials and procedures required"
                   />
                 </div>
               </div>
@@ -325,6 +217,27 @@ function GroupRow({ group, photos, findings, rowData, onChange, locked, onAIFill
         )}
       </AnimatePresence>
     </div>
+  );
+}
+
+function DocumentPreview({ payload, onClose }) {
+  const [model, setModel] = useState(null);
+  useEffect(() => {
+    let live = true;
+    prepareImages(buildReportModel(payload)).then(m => { if (live) setModel(m); });
+    return () => { live = false; };
+  }, [payload]);
+  return (
+    <motion.div className="fixed inset-0 z-50 bg-slate-900/80 overflow-auto p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+      <div className="max-w-[860px] mx-auto">
+        <div className="flex justify-end mb-3">
+          <button onClick={onClose} className="btn-secondary"><X size={15}/> Close preview</button>
+        </div>
+        {model ? <ReportDocument model={model}/> : (
+          <div className="flex items-center justify-center h-64 text-white gap-2"><Loader2 className="animate-spin"/> Preparing the document</div>
+        )}
+      </div>
+    </motion.div>
   );
 }
 
@@ -344,15 +257,25 @@ export default function ReportView() {
   const [loading,    setLoading]    = useState(true);
   const [saving,     setSaving]     = useState(false);
   const [exporting,  setExporting]  = useState(null);
-  const [aiFilling,  setAiFilling]  = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [preview,    setPreview]    = useState(null);
 
   const [header, setHeader] = useState({ title: "", summary: "", recommendations: "" });
   const [rows,   setRows]   = useState({});
 
   const isMine = report?.created_by === user?.id;
   const locked = report ? (!isMine || report.status === "published" || isLocked(report.created_at)) : false;
+  const canEditFindings = !locked && !!inspection && inspection.inspector_id === user?.id && hasRole("inspector") && !inspection.severity;
+  const byPhoto = useMemo(() => findingsByPhoto(findings), [findings]);
+
+  const onScanned = useCallback((photoId, result) => {
+    setFindings(prev => [...prev.filter(f => f.photo_id !== photoId), ...(result.findings || [])]);
+    setPhotos(prev => prev.map(p => p.id === photoId ? { ...p, scanned_at: result.scanned_at } : p));
+  }, []);
+  const scanner = usePhotoScanner({ onScanned });
+  const onFindingChanged = useCallback((row) => setFindings(prev => prev.map(f => f.id === row.id ? { ...f, ...row } : f)), []);
+  const onFindingRemoved = useCallback((fid) => setFindings(prev => prev.filter(f => f.id !== fid)), []);
 
   useEffect(() => {
     setLoading(true);
@@ -380,63 +303,62 @@ export default function ReportView() {
     setRows(prev => ({ ...prev, [groupId]: { ...(prev[groupId] || {}), [field]: value } }));
   };
 
-  const handleAIFill = (groupId, autoFindings, autoRemediation) => {
-    setAiFilling(true);
-    setTimeout(() => {
-      setRows(prev => ({
+  const fillGroup = (group, groupPhotos, overwrite) => {
+    const auto = autofillText(group, groupPhotos, byPhoto);
+    setRows(prev => {
+      const current = prev[group.id] || {};
+      return {
         ...prev,
-        [groupId]: {
-          ...(prev[groupId] || {}),
-          findings_text: prev[groupId]?.findings_text || autoFindings,
-          remediation:   prev[groupId]?.remediation   || autoRemediation,
+        [group.id]: {
+          ...current,
+          findings_text: overwrite || !current.findings_text ? auto.findings : current.findings_text,
+          remediation:   overwrite || !current.remediation ? auto.remediation : current.remediation,
         },
-      }));
-      setAiFilling(false);
-      toast.success("AI autofill applied");
-    }, 600);
+      };
+    });
   };
 
-  const handleAddManualFinding = async (groupId, photoId, defectType, severity) => {
-    try {
-      const res = await api.post("/findings/", {
-        inspection_id: inspection.id,
-        defect_type:   defectType,
-        severity:      severity,
-        confidence:    null,
-        photo_id:      photoId,
-        notes:         "Manually logged",
-        status:        "open",
-      });
-      setFindings(prev => [...prev, res.data]);
-      toast.success("Defect logged to database");
-    } catch (e) { toast.error(apiErrorText(e, "Failed to log defect")); }
+  const handleAutofill = (group, groupPhotos) => {
+    const current = rows[group.id] || {};
+    const overwrite = !!(current.findings_text || current.remediation) && confirm("Replace the text you already wrote for this group with text built from its findings?");
+    fillGroup(group, groupPhotos, overwrite);
+    toast.success("Filled in from findings");
   };
+
+  const handleAutofillAll = () => {
+    groups.forEach(g => fillGroup(g, g.photoIds.map(pid => photos.find(p => p.id === pid)).filter(Boolean), false));
+    toast.success("Empty boxes filled in from findings");
+  };
+
+  const handleAddManualFinding = async (photoId, defectType, severity) => {
+    try {
+      const res = await api.post("/findings/", { inspection_id: inspection.id, defect_type: defectType, severity, photo_id: photoId });
+      setFindings(prev => [...prev, res.data]);
+      toast.success("Finding logged");
+    } catch (e) { toast.error(apiErrorText(e, "Failed to log finding")); }
+  };
+
+  const saveReport = () => api.put("/reports/" + id, {
+    title:           header.title,
+    summary:         header.summary,
+    recommendations: header.recommendations,
+    row_data:        rows,
+  });
 
   const handleSave = async () => {
     setSaving(true);
-    try {
-      await api.put("/reports/" + id, {
-        title:           header.title,
-        summary:         header.summary,
-        recommendations: header.recommendations,
-        row_data:        rows,
-      });
-      toast.success("Report saved");
-    } catch (e) { toast.error(apiErrorText(e, "Save failed")); }
+    try { await saveReport(); toast.success("Report saved"); }
+    catch (e) { toast.error(apiErrorText(e, "Save failed")); }
     finally { setSaving(false); }
   };
 
-  const buildExportPayload = () => ({
-    report, inspection, findings, photos, groups, creator, header, rows,
-  });
+  const buildExportPayload = () => ({ report, inspection, findings, photos, groups, creator, header, rows });
 
-  const handleExport = async (format) => {
+  const runExport = async (format) => {
     setExporting(format);
-    setShowExport(false);
     try {
-      if (format === "pdf") await exportReportPdf(buildExportPayload());
-      else                  await exportReportDocx(buildExportPayload());
-      toast.success("Exported as " + format.toUpperCase());
+      await exportReport(format, buildExportPayload());
+      toast.success("Exported as " + (format === "pdf" ? "PDF" : "Word"));
     } catch (e) {
       console.error(e);
       toast.error(apiErrorText(e, `Export failed: ${e.message}`));
@@ -445,36 +367,20 @@ export default function ReportView() {
 
   const handlePublish = async () => {
     setSaving(true);
-    try {
-      await api.put("/reports/" + id, {
-        title:           header.title,
-        summary:         header.summary,
-        recommendations: header.recommendations,
-        row_data:        rows,
-      });
-    } catch (e) { toast.error(apiErrorText(e, "Failed to save before publishing")); setSaving(false); return; }
+    try { await saveReport(); }
+    catch (e) { toast.error(apiErrorText(e, "Failed to save before publishing")); setSaving(false); return; }
     setSaving(false);
-
     try {
       await api.post("/reports/" + id + "/publish");
       setReport(prev => ({ ...prev, status: "published" }));
-      toast.success("Report published!");
+      toast.success("Report published");
       setShowExportModal(true);
     } catch (e) { toast.error(apiErrorText(e, "Failed to publish")); }
   };
 
   const handleExportChoice = async (format) => {
     setShowExportModal(false);
-    if (format) {
-      setExporting(format);
-      try {
-        if (format === "pdf")  await exportReportPdf(buildExportPayload());
-        else                   await exportReportDocx(buildExportPayload());
-        toast.success("Exported as " + format.toUpperCase());
-      } catch (e) {
-        toast.error(apiErrorText(e, `Export failed: ${e.message}`));
-      } finally { setExporting(null); }
-    }
+    if (format) await runExport(format);
     navigate(backTo);
   };
 
@@ -486,6 +392,8 @@ export default function ReportView() {
 
   if (!report) return null;
 
+  const severityCounts = SEVERITIES.map(s => [s, findings.filter(f => f.severity === s).length]);
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="page-header">
@@ -496,23 +404,22 @@ export default function ReportView() {
           <div>
             <h1 className="page-title">{report.title}</h1>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <span className={report.status === "published" ? "badge-green" : "badge-gray"}>{report.status}</span>
+              <span className={report.status === "published" ? "badge-green" : "badge-gray"}>{capitalise(report.status)}</span>
+              {inspection?.reference && <span className="text-xs font-mono text-slate-500">{inspection.reference}</span>}
               {!isMine && creator?.name && <span className="text-xs text-slate-400">by {creator.name}</span>}
               {locked && isMine && (
                 <span className="flex items-center gap-1 text-xs text-amber-500 font-medium">
-                  <Lock size={11}/> Locked — reports cannot be edited after 3 days
+                  <Lock size={11}/> Read only
                 </span>
               )}
             </div>
           </div>
+          <button onClick={() => setPreview(buildExportPayload())} className="btn-secondary"><Eye size={14}/> Preview document</button>
         </div>
       </div>
 
       {locked && (
-        <motion.div
-          className="card p-4 flex items-center gap-3 border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20"
-          initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
-        >
+        <motion.div className="card p-4 flex items-center gap-3 border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20" initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}>
           <Lock size={16} className="text-amber-600 shrink-0"/>
           <p className="text-sm text-amber-700 dark:text-amber-400">
             {!isMine
@@ -524,26 +431,34 @@ export default function ReportView() {
         </motion.div>
       )}
 
+      {!locked && inspection?.severity && (
+        <div className="card p-3 text-sm text-slate-600 dark:text-slate-300 flex items-center gap-2">
+          <Lock size={14} className="text-slate-400"/> A facility manager has reviewed this inspection, so its findings are read only. You can still edit the report text.
+        </div>
+      )}
+
       <motion.div className="card p-5 space-y-3" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
         <h2 className="font-semibold text-slate-800 dark:text-slate-200 text-sm flex items-center gap-2">
           <Building2 size={15} className="text-primary-600"/> Inspection Details
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-2">
-          <InfoRow label="Inspection Title"  value={inspection?.title}                       icon={FileText}/>
-          <InfoRow label="Building"          value={inspection?.buildings?.name}             icon={Building2}/>
-          <InfoRow label="Building Code"     value={inspection?.buildings?.code}             icon={Layers}/>
-          <InfoRow label="Inspection Date"   value={inspection?.inspection_date}             icon={Calendar}/>
-          <InfoRow label="Weather"           value={inspection?.weather_condition}           icon={Cloud}/>
-          <InfoRow label="Floor Level"       value={inspection?.floor_level}                icon={Layers}/>
-          <InfoRow label="Area Inspected"    value={inspection?.area_inspected}             icon={MapPin}/>
-          <InfoRow label="Prepared By"       value={creator?.name}                          icon={User}/>
-          <InfoRow label="Report Date"       value={new Date(report.created_at).toLocaleDateString("en-MY", { year:"numeric", month:"long", day:"numeric" })} icon={Calendar}/>
-          <InfoRow label="Status"            value={report.status}/>
+          <InfoRow label="Inspection No."  value={inspection?.reference}                 icon={Hash}/>
+          <InfoRow label="Complaint No."   value={inspection?.complaint_reference}       icon={Hash}/>
+          <InfoRow label="Inspection Title" value={inspection?.title}                    icon={FileText}/>
+          <InfoRow label="Building"        value={inspection?.buildings?.name}           icon={Building2}/>
+          <InfoRow label="Building Code"   value={inspection?.buildings?.code}           icon={Layers}/>
+          <InfoRow label="Inspection Date" value={fmtDate(inspection?.inspection_date)}  icon={Calendar}/>
+          <InfoRow label="Weather"         value={capitalise(inspection?.weather_condition)} icon={Cloud}/>
+          <InfoRow label="Floor Level"     value={inspection?.floor_level}               icon={Layers}/>
+          <InfoRow label="Area Inspected"  value={inspection?.area_inspected}            icon={MapPin}/>
+          <InfoRow label="Prepared By"     value={creator?.name}                         icon={User}/>
+          <InfoRow label="Report Date"     value={fmtDate(report.created_at)}            icon={Calendar}/>
+          <InfoRow label="Severity"        value={inspection?.severity ? severityLabel(inspection.severity) : "Not reviewed yet"}/>
         </div>
         {inspection?.description && (
           <div className="pt-1 border-t border-slate-100 dark:border-slate-800">
             <p className="text-xs text-slate-400 mb-1">Site Remarks</p>
-            <p className="text-sm text-slate-600 dark:text-slate-300">{inspection.description}</p>
+            <p className="text-sm text-slate-600 dark:text-slate-300 whitespace-pre-wrap">{inspection.description}</p>
           </div>
         )}
       </motion.div>
@@ -557,12 +472,12 @@ export default function ReportView() {
           <input value={header.title} onChange={e => setHeader(h => ({...h, title: e.target.value}))} disabled={locked} className="input"/>
         </div>
         <div>
-          <label className="label">Executive Summary</label>
-          <textarea value={header.summary} onChange={e => setHeader(h => ({...h, summary: e.target.value}))} disabled={locked} className="input resize-none" rows={4} placeholder="Provide an overall assessment of the building's condition, scope of inspection, and key findings…"/>
+          <label className="label">Summary</label>
+          <textarea value={header.summary} onChange={e => setHeader(h => ({...h, summary: e.target.value}))} disabled={locked} className="input resize-none" rows={4} placeholder="Overall condition of the building, scope of the inspection and key findings"/>
         </div>
         <div>
           <label className="label">General Recommendations</label>
-          <textarea value={header.recommendations} onChange={e => setHeader(h => ({...h, recommendations: e.target.value}))} disabled={locked} className="input resize-none" rows={3} placeholder="Summarise the priority remediation actions and maintenance schedule…"/>
+          <textarea value={header.recommendations} onChange={e => setHeader(h => ({...h, recommendations: e.target.value}))} disabled={locked} className="input resize-none" rows={3} placeholder="Priority repair actions and maintenance schedule"/>
         </div>
       </motion.div>
 
@@ -570,36 +485,18 @@ export default function ReportView() {
         <div className="flex items-center justify-between flex-wrap gap-2">
           <h2 className="font-semibold text-slate-800 dark:text-slate-200 text-sm flex items-center gap-2">
             <AlertTriangle size={15} className="text-amber-500"/>
-            Findings & Remediation Table
+            Findings and Remediation
             <span className="text-xs text-slate-400 font-normal">
-              ({groups.length} group{groups.length !== 1 ? "s" : ""} · {findings.length} finding{findings.length !== 1 ? "s" : ""})
+              ({groups.length} group{groups.length !== 1 ? "s" : ""}, {findings.length} finding{findings.length !== 1 ? "s" : ""})
             </span>
           </h2>
           {!locked && (
             <button
-              onClick={() => {
-                groups.forEach(g => {
-                  const gf   = findings.filter(f => g.photoIds.includes(f.photo_id));
-                  const gph  = g.photoIds.map(id => photos.find(p => p.id === id)).filter(Boolean);
-                  const pMap = {};
-                  gph.forEach((ph, i) => { pMap[ph.id] = i + 1; });
-                  const numbered = gf.map((f, fi) => ({
-                    ...f,
-                    photoNum: f.photo_id && pMap[f.photo_id] ? g.label + "." + pMap[f.photo_id] : g.label + "." + (fi + 1),
-                  }));
-                  const autoF = numbered.map(f =>
-                    "• [Photo " + f.photoNum + "] " + (f.defect_type || "").replace(/_/g, " ") +
-                    " (" + (SEVERITY_LABEL[f.severity] || f.severity) + "): Confidence " + Math.round((f.confidence || 0) * 100) + "%"
-                  ).join("\n");
-                  const autoR = [...new Set(gf.map(f => f.defect_type))].map(dt => REMEDIATION_MAP[dt] ? (dt.replace(/_/g, " ").replace(/^\w/, c => c.toUpperCase()) + ":\n" + REMEDIATION_MAP[dt]) : null).filter(Boolean).join("\n\n");
-                  handleAIFill(g.id, autoF, autoR);
-                });
-              }}
-              disabled={aiFilling || findings.length === 0}
+              onClick={handleAutofillAll}
+              disabled={findings.length === 0}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 text-xs font-semibold hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors disabled:opacity-40"
             >
-              {aiFilling ? <Loader2 size={12} className="animate-spin"/> : <Sparkles size={12}/>}
-              AI Autofill All Groups
+              <Sparkles size={12}/> Autofill all groups from findings
             </button>
           )}
         </div>
@@ -615,12 +512,15 @@ export default function ReportView() {
                 key={g.id}
                 group={g}
                 photos={photos}
-                findings={findings}
+                byPhoto={byPhoto}
                 rowData={rows[g.id]}
                 onChange={handleRowChange}
                 locked={locked}
-                onAIFill={handleAIFill}
-                aiFilling={aiFilling}
+                canEditFindings={canEditFindings}
+                scanner={scanner}
+                onAutofill={handleAutofill}
+                onFindingChanged={onFindingChanged}
+                onFindingRemoved={onFindingRemoved}
                 onAddManualFinding={handleAddManualFinding}
               />
             ))}
@@ -632,28 +532,26 @@ export default function ReportView() {
         <h2 className="font-semibold text-slate-800 dark:text-slate-200 text-sm flex items-center gap-2">
           <CheckCircle size={15} className="text-emerald-500"/> Summary Statistics
         </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {[
-            { label: "Total Findings",  value: findings.length,                                                               color: "text-primary-600" },
-            { label: "High Severity",   value: findings.filter(f => f.severity === "high" || f.severity === "critical").length, color: "text-red-500"     },
-            { label: "Medium Severity", value: findings.filter(f => f.severity === "medium").length,                           color: "text-amber-500"   },
-            { label: "Low Severity",    value: findings.filter(f => f.severity === "low").length,                              color: "text-emerald-500" },
-          ].map(s => (
-            <div key={s.label} className="rounded-xl bg-slate-50 dark:bg-slate-800/50 p-3 text-center">
-              <p className={"text-2xl font-bold " + s.color}>{s.value}</p>
-              <p className="text-xs text-slate-400 mt-0.5">{s.label}</p>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <div className="rounded-xl bg-slate-50 dark:bg-slate-800/50 p-3 text-center">
+            <p className="text-2xl font-bold text-slate-900 dark:text-white">{findings.length}</p>
+            <p className="text-xs text-slate-400 mt-0.5">Total findings</p>
+          </div>
+          {severityCounts.map(([s, n]) => (
+            <div key={s} className="rounded-xl bg-slate-50 dark:bg-slate-800/50 p-3 text-center">
+              <p className="text-2xl font-bold text-slate-900 dark:text-white">{n}</p>
+              <p className="text-xs text-slate-400 mt-0.5">{severityLabel(s)}</p>
             </div>
           ))}
         </div>
         {findings.length > 0 && (
           <div className="pt-1">
-            <p className="text-xs text-slate-400 mb-2">Defect Breakdown</p>
+            <p className="text-xs text-slate-400 mb-2">Defect breakdown</p>
             <div className="flex flex-wrap gap-2">
-              {Object.entries(
-                findings.reduce((acc, f) => { acc[f.defect_type] = (acc[f.defect_type] || 0) + 1; return acc; }, {})
-              ).map(([type, count]) => (
-                <span key={type} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium text-white" style={{ background: DEFECT_COLORS[type] || "#6366f1" }}>
-                  {type.replace(/_/g, " ")} × {count}
+              {Object.entries(findings.reduce((acc, f) => { acc[f.defect_type] = (acc[f.defect_type] || 0) + 1; return acc; }, {})).map(([type, count]) => (
+                <span key={type} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200">
+                  <span className="w-2 h-2 rounded-full" style={{ background: DEFECT_COLORS[type] || "#6366f1" }}/>
+                  {defectLabel(type)}: {count}
                 </span>
               ))}
             </div>
@@ -661,53 +559,50 @@ export default function ReportView() {
         )}
       </motion.div>
 
-      {locked && report?.status === "published" && (
-        <div className="flex justify-end gap-2 pb-2">
-          <div className="relative">
-            <button
-              onClick={() => setShowExport(s => !s)}
-              disabled={!!exporting}
-              className="btn-secondary flex items-center gap-2"
-            >
-              {exporting ? <Loader2 size={14} className="animate-spin"/> : <FileDown size={14}/>}
-              {exporting ? "Exporting…" : "Export Report"}
-              <ChevronDown size={13}/>
-            </button>
-            <AnimatePresence>
-              {showExport && (
-                <motion.div
-                  initial={{ opacity: 0, y: -6, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.96 }}
-                  transition={{ duration: 0.15 }}
-                  className="absolute right-0 top-full mt-1 w-44 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-100 dark:border-slate-700 z-20 overflow-hidden"
-                >
-                  <button onClick={() => { setShowExport(false); handleExport("pdf"); }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
-                    <FileDown size={14} className="text-red-500"/> Download PDF
-                  </button>
-                  <button onClick={() => { setShowExport(false); handleExport("docx"); }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
-                    <File size={14} className="text-blue-500"/> Download Word
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        </div>
-      )}
-
-      {!locked && report?.status === "draft" && (
-        <div className="flex justify-end pb-6">
-          <button onClick={handlePublish} disabled={saving} className="btn-primary flex items-center gap-2">
-            {saving ? <Loader2 size={14} className="animate-spin"/> : <Send size={14}/>}
-            {saving ? "Saving…" : "Publish Report"}
+      <div className="flex justify-end gap-2 pb-6 flex-wrap">
+        <div className="relative">
+          <button onClick={() => setShowExport(s => !s)} disabled={!!exporting} className="btn-secondary flex items-center gap-2">
+            {exporting ? <Loader2 size={14} className="animate-spin"/> : <FileDown size={14}/>}
+            {exporting ? "Exporting..." : "Export"}
+            <ChevronDown size={13}/>
           </button>
+          <AnimatePresence>
+            {showExport && (
+              <motion.div
+                initial={{ opacity: 0, y: 6, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 6, scale: 0.96 }}
+                transition={{ duration: 0.15 }}
+                className="absolute right-0 bottom-full mb-1 w-44 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-100 dark:border-slate-700 z-20 overflow-hidden"
+              >
+                <button onClick={() => { setShowExport(false); runExport("pdf"); }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                  <FileDown size={14}/> Download PDF
+                </button>
+                <button onClick={() => { setShowExport(false); runExport("docx"); }} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
+                  <File size={14}/> Download Word
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
-      )}
+        {!locked && report?.status === "draft" && (
+          <>
+            <button onClick={handleSave} disabled={saving} className="btn-secondary flex items-center gap-2">
+              <Save size={14}/> Save draft
+            </button>
+            <button onClick={handlePublish} disabled={saving} className="btn-primary flex items-center gap-2">
+              {saving ? <Loader2 size={14} className="animate-spin"/> : <Send size={14}/>}
+              {saving ? "Saving..." : "Publish Report"}
+            </button>
+          </>
+        )}
+      </div>
+
+      <AnimatePresence>
+        {preview && <DocumentPreview payload={preview} onClose={() => setPreview(null)}/>}
+      </AnimatePresence>
 
       <AnimatePresence>
         {showExportModal && (
-          <motion.div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          >
+          <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <motion.div
               className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
               initial={{ scale: 0.92, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.92, opacity: 0 }}
@@ -717,30 +612,17 @@ export default function ReportView() {
                 <div className="w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center mx-auto mb-3">
                   <CheckCircle size={24} className="text-emerald-600"/>
                 </div>
-                <h2 className="font-bold text-slate-900 dark:text-white text-lg">Report Published!</h2>
+                <h2 className="font-bold text-slate-900 dark:text-white text-lg">Report Published</h2>
                 <p className="text-sm text-slate-500 dark:text-slate-400">Would you like to download a copy before returning to Reports?</p>
               </div>
               <div className="px-6 pb-6 space-y-2">
-                <button
-                  onClick={() => handleExportChoice("pdf")}
-                  disabled={!!exporting}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 font-semibold text-sm hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
-                >
-                  {exporting === "pdf" ? <Loader2 size={14} className="animate-spin"/> : <FileDown size={14}/>}
-                  Download PDF
+                <button onClick={() => handleExportChoice("pdf")} disabled={!!exporting} className="btn-secondary w-full justify-center">
+                  {exporting === "pdf" ? <Loader2 size={14} className="animate-spin"/> : <FileDown size={14}/>} Download PDF
                 </button>
-                <button
-                  onClick={() => handleExportChoice("docx")}
-                  disabled={!!exporting}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-semibold text-sm hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors"
-                >
-                  {exporting === "docx" ? <Loader2 size={14} className="animate-spin"/> : <File size={14}/>}
-                  Download Word
+                <button onClick={() => handleExportChoice("docx")} disabled={!!exporting} className="btn-secondary w-full justify-center">
+                  {exporting === "docx" ? <Loader2 size={14} className="animate-spin"/> : <File size={14}/>} Download Word
                 </button>
-                <button
-                  onClick={() => handleExportChoice(null)}
-                  className="w-full py-2.5 rounded-xl text-slate-500 dark:text-slate-400 text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                >
+                <button onClick={() => handleExportChoice(null)} className="w-full py-2.5 rounded-xl text-slate-500 dark:text-slate-400 text-sm font-medium hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
                   No thanks, go to Reports
                 </button>
               </div>

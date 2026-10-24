@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from postgrest.exceptions import APIError
 from pydantic import BaseModel
 from supabase import create_client, Client
-from auth import MANAGER_ROLES, get_current_user, has_any_role, require_roles, users_with_roles
-from inspection import owns_inspection
+from auth import MANAGER_ROLES, attach_user_names, get_current_user, has_any_role, require_roles, users_with_roles
+from inspection import owns_inspection, with_references
 from public import format_inspection_reference
 
 router = APIRouter()
@@ -237,8 +237,11 @@ def export_report_data(report_id: str, current_user: dict = Depends(get_current_
     supabase = get_supabase()
     report = _load_report(supabase, report_id)
     _assert_can_view(supabase, report, current_user)
-    inspection = supabase.table("inspections").select("*, buildings(*)").eq("id", report["inspection_id"]).single().execute().data or {}
-    findings   = supabase.table("findings").select("*").eq("inspection_id", report["inspection_id"]).execute().data or []
+    inspection = supabase.table("inspections").select("*, buildings(*), complaints(ref_no), assessor:users!assessed_by(name)").eq("id", report["inspection_id"]).single().execute().data or {}
+    with_references(inspection)
+    inspection["assessor_name"] = (inspection.pop("assessor", None) or {}).get("name")
+    findings   = supabase.table("findings").select("*").eq("inspection_id", report["inspection_id"]).is_("dismissed_at", "null").order("created_at").execute().data or []
+    attach_user_names(supabase, findings, "created_by", "edited_by")
     photos     = supabase.table("photos").select("*").eq("inspection_id", report["inspection_id"]).order("created_at").execute().data or []
     groups_raw = supabase.table("inspection_groups").select("*").eq("inspection_id", report["inspection_id"]).order("sort_order").execute().data or []
     groups = []

@@ -1,9 +1,10 @@
 import os
 import io
+import time
 import torch
 import numpy as np
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageOps
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel
 from typing import List, Optional
@@ -137,9 +138,55 @@ def _run_inference(image: Image.Image, conf: float):
     return results
 
 
-def scan_image_bytes(contents: bytes) -> list:
-    image = Image.open(io.BytesIO(contents)).convert("RGB")
-    return _run_inference(image, CONFIDENCE_THRESHOLD)
+def log_scan(source: str, detections: list, seconds: float) -> None:
+    top = sorted(detections, key=lambda d: d["score"], reverse=True)[:3]
+    scores = ",".join(f"{d['label']}:{d['score']:.2f}" for d in top) or "none"
+    print(
+        f"[AI] scan {source} detections={len(detections)} top={scores} "
+        f"threshold={CONFIDENCE_THRESHOLD} time={seconds:.2f}s",
+        flush=True,
+    )
+
+
+def detect_image(image: Image.Image, source: str) -> list:
+    started = time.perf_counter()
+    try:
+        detections = _run_inference(image, CONFIDENCE_THRESHOLD)
+    except Exception as e:
+        print(f"[AI] scan {source} failed after {time.perf_counter() - started:.2f}s: {e}", flush=True)
+        raise
+    log_scan(source, detections, time.perf_counter() - started)
+    return detections
+
+
+def open_image(contents: bytes) -> Image.Image:
+    return ImageOps.exif_transpose(Image.open(io.BytesIO(contents))).convert("RGB")
+
+
+def scan_image_bytes(contents: bytes, source: str = "image") -> list:
+    return detect_image(open_image(contents), source)
+
+
+def box_iou(a: Optional[dict], b: Optional[dict]) -> float:
+    if not a or not b:
+        return 0.0
+    try:
+        ix = max(0.0, min(a["xmax"], b["xmax"]) - max(a["xmin"], b["xmin"]))
+        iy = max(0.0, min(a["ymax"], b["ymax"]) - max(a["ymin"], b["ymin"]))
+        inter = ix * iy
+        area_a = (a["xmax"] - a["xmin"]) * (a["ymax"] - a["ymin"])
+        area_b = (b["xmax"] - b["xmin"]) * (b["ymax"] - b["ymin"])
+    except (KeyError, TypeError):
+        return 0.0
+    union = area_a + area_b - inter
+    return inter / union if union > 0 else 0.0
+
+
+def is_duplicate(detection: dict, existing: list, threshold: float = 0.5) -> bool:
+    return any(
+        f.get("defect_type") == detection["label"] and box_iou(f.get("bbox"), detection["box"]) >= threshold
+        for f in existing
+    )
 
 
 def count_labels(detections: Optional[list]) -> dict:
@@ -182,12 +229,12 @@ async def detect_defects(
         raise HTTPException(status_code=400, detail="Image too large. Max 20MB.")
 
     try:
-        image = Image.open(io.BytesIO(contents)).convert("RGB")
+        image = ImageOps.exif_transpose(Image.open(io.BytesIO(contents))).convert("RGB")
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid image file")
 
     try:
-        raw = _run_inference(image, CONFIDENCE_THRESHOLD)
+        raw = detect_image(image, f"upload={file.filename or 'image'}")
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e))
 
@@ -217,8 +264,9 @@ def model_health():
     files = [f.name for f in model_path.iterdir() if f.is_file()]
     loaded = _model is not None
     return {
-        "status":  "ready" if loaded else "not_loaded",
-        "path":    MODEL_PATH,
-        "device":  _device or "not loaded",
-        "files":   files,
+        "status":               "ready" if loaded else "not_loaded",
+        "path":                 MODEL_PATH,
+        "device":               _device or "not loaded",
+        "confidence_threshold": CONFIDENCE_THRESHOLD,
+        "files":                files,
     }

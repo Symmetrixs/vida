@@ -8,7 +8,9 @@ import toast from "react-hot-toast";
 import { apiErrorText } from "../../utils/apiError.js";
 import clsx from "clsx";
 import { SEVERITIES, SEVERITY_CLASS, SEVERITY_HELP, fmtDateTime, fmtDay } from "../../utils/complaintUi.js";
-import { JOB_STATUS_LABEL, JOB_STATUS_CLASS, defectLabel } from "../../utils/repairUi.js";
+import { JOB_STATUS_LABEL, JOB_STATUS_CLASS } from "../../utils/repairUi.js";
+import { severityLabel } from "../../utils/findings.js";
+import { FindingList, PhotoWithBoxes, ScanStatus } from "../../components/PhotoScan.jsx";
 
 function Section({ icon: Icon, title, children, extra }) {
   return (
@@ -127,27 +129,20 @@ export default function InspectionReview() {
         </div>
       </Section>
 
-      <Section icon={ImageIcon} title={`Photos and AI findings (${findings.length})`}
-        extra={highest && <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5">Highest finding <span className={SEVERITY_CLASS[highest]}>{highest}</span></span>}>
+      <Section icon={ImageIcon} title={`Photos and findings (${findings.length})`}
+        extra={highest && <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5">Highest finding <span className={SEVERITY_CLASS[highest]}>{severityLabel(highest)}</span></span>}>
         {photos.length === 0 ? (
           <p className="text-sm text-slate-400">No photos recorded.</p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {photos.map(p => (
               <div key={p.id} className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
-                <a href={p.url} target="_blank" rel="noreferrer"><img src={p.url} alt={p.description || "Inspection photo"} className="w-full aspect-video object-cover"/></a>
+                <a href={p.url} target="_blank" rel="noreferrer" className="block">
+                  <PhotoWithBoxes photo={p} findings={findingsByPhoto[p.id] || []} className="aspect-video bg-slate-100 dark:bg-slate-800"/>
+                </a>
                 <div className="p-3 space-y-1.5">
-                  {(findingsByPhoto[p.id] || []).length === 0 ? (
-                    <p className="text-xs text-slate-400">No findings on this photo</p>
-                  ) : findingsByPhoto[p.id].map(f => (
-                    <div key={f.id} className="flex items-center justify-between gap-2 text-xs">
-                      <span className="capitalize text-slate-700 dark:text-slate-300">{defectLabel(f.defect_type)}</span>
-                      <span className="flex items-center gap-1.5">
-                        {f.confidence != null && <span className="text-slate-400">{Math.round(f.confidence * 100)}%</span>}
-                        <span className={SEVERITY_CLASS[f.severity] || "badge-gray"}>{f.severity}</span>
-                      </span>
-                    </div>
-                  ))}
+                  <ScanStatus photo={p} findings={findingsByPhoto[p.id] || []}/>
+                  <FindingList findings={findingsByPhoto[p.id] || []}/>
                 </div>
               </div>
             ))}
@@ -156,12 +151,7 @@ export default function InspectionReview() {
         {(findingsByPhoto.none || []).length > 0 && (
           <div className="mt-4 space-y-1.5">
             <p className="text-xs font-medium text-slate-500">Findings not tied to a photo</p>
-            {findingsByPhoto.none.map(f => (
-              <div key={f.id} className="flex items-center justify-between gap-2 text-xs">
-                <span className="capitalize text-slate-700 dark:text-slate-300">{defectLabel(f.defect_type)}{f.location_description ? ` · ${f.location_description}` : ""}</span>
-                <span className={SEVERITY_CLASS[f.severity] || "badge-gray"}>{f.severity}</span>
-              </div>
-            ))}
+            <FindingList findings={findingsByPhoto.none}/>
           </div>
         )}
       </Section>

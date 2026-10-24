@@ -1,13 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Inbox, X, Image as ImageIcon, MapPin, User, ClipboardCheck, Ban, CalendarClock, AlertTriangle, FileText, Circle, CheckCircle2, ShieldAlert, Eye, ScanSearch } from "lucide-react";
+import { Inbox, X, Image as ImageIcon, MapPin, User, ClipboardCheck, Ban, CalendarClock, AlertTriangle, FileText, Circle, CheckCircle2, ShieldAlert, Eye } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
 import { apiErrorText } from "../../utils/apiError.js";
 import clsx from "clsx";
 import { OPEN_STATUSES, STATUS_LABEL, STATUS_CLASS, SEVERITY_CLASS, fmtDateTime as fmtDate, fmtDay } from "../../utils/complaintUi.js";
-import { countsText } from "../../utils/repairUi.js";
 
 const TABS = [
   { key: "pending",     label: "Pending" },
@@ -98,15 +97,11 @@ function ComplaintModal({ complaintId, onClose, onChanged }) {
   const [convertForm, setConvertForm] = useState({ inspector_id: "", title: "", inspection_date: localToday(), due_date: "" });
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
-  const [scans, setScans] = useState(null);
 
   useEffect(() => {
     api.get(`/complaints/${complaintId}`).then(r => {
       setComplaint(r.data);
       setConvertForm(f => ({ ...f, title: `Complaint ${r.data.reference}` }));
-      api.post(`/complaints/${complaintId}/scan`, null, { timeout: 120000 })
-        .then(s => setScans(Object.fromEntries(s.data.map(x => [x.id, x]))))
-        .catch(() => setScans({}));
     }).catch((e) => { toast.error(apiErrorText(e, "Failed to load complaint")); onClose(); });
   }, [complaintId, onClose]);
 
@@ -167,7 +162,7 @@ function ComplaintModal({ complaintId, onClose, onChanged }) {
 
             <div className="grid grid-cols-3 gap-3 mb-4">
               {complaint.photos.map((p, i) => (
-                <div key={p.id} className="space-y-1">
+                <div key={p.id}>
                   {p.url ? (
                     <a href={p.url} target="_blank" rel="noreferrer" className="block aspect-square rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700">
                       <img src={p.url} alt={`Complaint photo ${i + 1}`} className="w-full h-full object-cover hover:scale-105 transition-transform"/>
@@ -175,10 +170,6 @@ function ComplaintModal({ complaintId, onClose, onChanged }) {
                   ) : (
                     <div className="aspect-square rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-400"><ImageIcon size={20}/></div>
                   )}
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 flex items-start gap-1">
-                    <ScanSearch size={11} className="mt-0.5 shrink-0"/>
-                    {scans === null ? "AI scanning..." : scans[p.id]?.scanned ? countsText(scans[p.id].counts) : "AI scan unavailable"}
-                  </p>
                 </div>
               ))}
             </div>
@@ -315,7 +306,7 @@ export default function Complaints() {
     <div className="space-y-6">
       <div className="page-header">
         <h1 className="page-title flex items-center gap-2"><Inbox size={22}/> Complaints</h1>
-        <p className="page-subtitle">Defects reported by the public. Nothing here counts in statistics or reports until it is converted into an inspection. Photos are scanned by the AI model when you open a complaint.</p>
+        <p className="page-subtitle">Defects reported by the public. Nothing here counts in statistics or reports until it is converted into an inspection. The AI scan runs only on inspection photos, after a complaint is converted.</p>
       </div>
 
       <div className="flex gap-2 flex-wrap">

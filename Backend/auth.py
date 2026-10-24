@@ -9,7 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from supabase import create_client, Client
 
 router = APIRouter()
@@ -39,6 +39,13 @@ def get_supabase() -> Client:
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+
+
+class Register(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    email: EmailStr
+    employee_id: str = Field(min_length=1, max_length=40)
+    password: str = Field(min_length=8, max_length=128)
 
 
 class Token(BaseModel):
@@ -88,6 +95,17 @@ def users_with_roles(supabase: Client, roles, columns: str = "id") -> list:
     if not ids:
         return []
     return supabase.table("users").select(columns).in_("id", ids).eq("is_active", True).order("name").execute().data or []
+
+
+def attach_user_names(supabase: Client, rows: list, *fields: str) -> list:
+    ids = sorted({r[f] for r in rows for f in fields if r.get(f)})
+    names = {}
+    if ids:
+        names = {u["id"]: u["name"] for u in (supabase.table("users").select("id, name").in_("id", ids).execute().data or [])}
+    for r in rows:
+        for f in fields:
+            r[f"{f}_name"] = names.get(r.get(f))
+    return rows
 
 
 def active_user_with_role(supabase: Client, user_id: str, role: str, columns: str = "id, name") -> Optional[dict]:
@@ -183,7 +201,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> dict:
 
     supabase = get_supabase()
     rows = supabase.table("users").select("*").eq("id", user_id).execute().data
-    if not rows or not rows[0].get("is_active", True):
+    if not rows or not rows[0].get("is_active", True) or rows[0].get("status", "approved") != "approved":
         raise credentials_exception
     user = rows[0]
     user.pop("password_hash", None)
@@ -210,6 +228,13 @@ def login(form_data: UserLogin):
     if not verify_password(form_data.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
+    account_status = user.get("status", "approved")
+    if account_status == "pending":
+        raise HTTPException(status_code=403, detail="Your account is waiting for admin approval")
+    if account_status == "rejected":
+        reason = (user.get("reject_reason") or "").strip()
+        raise HTTPException(status_code=403, detail=f"Your registration was rejected. Reason: {reason}" if reason else "Your registration was rejected")
+
     if not user.get("is_active", True):
         raise HTTPException(status_code=403, detail="Account deactivated")
 
@@ -229,6 +254,32 @@ def login(form_data: UserLogin):
         "phone":       user.get("phone"),
         "created_at":  user.get("created_at"),
     })
+
+
+@router.post("/register", status_code=status.HTTP_201_CREATED)
+def register(body: Register):
+    supabase = get_supabase()
+    name = " ".join(body.name.split())
+    email = body.email.lower()
+    employee_id = body.employee_id.strip()
+    if not name or not employee_id:
+        raise HTTPException(status_code=400, detail="Name and employee ID are required")
+    if supabase.table("users").select("id").eq("email", email).execute().data:
+        raise HTTPException(status_code=400, detail="An account with this email already exists")
+    if supabase.table("users").select("id").eq("employee_id", employee_id).execute().data:
+        raise HTTPException(status_code=400, detail="This Matric No. / Employee ID is already used by another account")
+    result = supabase.table("users").insert({
+        "name":          name,
+        "email":         email,
+        "employee_id":   employee_id,
+        "password_hash": hash_password(body.password),
+        "is_active":     True,
+        "status":        "pending",
+        "created_at":    datetime.now(timezone.utc).isoformat(),
+    }).execute()
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Failed to create account")
+    return {"message": "Registration received. You can sign in once an admin approves your account.", "status": "pending"}
 
 
 @router.get("/me")

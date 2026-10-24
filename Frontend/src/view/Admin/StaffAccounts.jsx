@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Users as UsersIcon, Search, Pencil, Trash2, X, UserPlus } from "lucide-react";
+import { Users as UsersIcon, Search, Pencil, Trash2, X, UserPlus, UserCheck, Clock } from "lucide-react";
 import api from "../../api/axios.js";
 import toast from "react-hot-toast";
 import { apiErrorText } from "../../utils/apiError.js";
@@ -113,6 +113,73 @@ function StaffModal({ staff, isSelf, onClose, onSaved }) {
   );
 }
 
+function RegistrationModal({ account, onClose, onDone }) {
+  const [roles, setRoles] = useState([]);
+  const [rejecting, setRejecting] = useState(false);
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const approve = async () => {
+    if (roles.length === 0) { toast.error("Tick at least one role to approve"); return; }
+    setSaving(true);
+    try {
+      await api.post(`/admin/users/${account.id}/approve`, { roles });
+      toast.success(`${account.name} approved`);
+      onDone();
+    } catch (e) { toast.error(apiErrorText(e, "Approve failed")); }
+    finally { setSaving(false); }
+  };
+
+  const reject = async () => {
+    setSaving(true);
+    try {
+      await api.post(`/admin/users/${account.id}/reject`, { reason: reason.trim() || null });
+      toast.success(`${account.name} rejected`);
+      onDone();
+    } catch (e) { toast.error(apiErrorText(e, "Reject failed")); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <motion.div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <motion.div className="card w-full max-w-lg p-6 shadow-2xl max-h-[90vh] overflow-y-auto scrollbar-thin" initial={{ scale: 0.92, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.92, opacity: 0 }}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-slate-900 dark:text-white">Review registration</h3>
+          <button onClick={onClose} className="btn-ghost p-1.5 rounded-lg"><X size={16}/></button>
+        </div>
+        <dl className="grid grid-cols-3 gap-y-1.5 text-sm mb-5">
+          <dt className="text-slate-500">Name</dt><dd className="col-span-2 text-slate-900 dark:text-white">{account.name}</dd>
+          <dt className="text-slate-500">Email</dt><dd className="col-span-2 text-slate-900 dark:text-white break-all">{account.email}</dd>
+          <dt className="text-slate-500">Employee ID</dt><dd className="col-span-2 text-slate-900 dark:text-white">{account.employee_id || "-"}</dd>
+          <dt className="text-slate-500">Registered</dt><dd className="col-span-2 text-slate-900 dark:text-white">{account.created_at ? new Date(account.created_at).toLocaleString("en-MY") : "-"}</dd>
+        </dl>
+        {rejecting ? (
+          <div className="space-y-3">
+            <label className="label">Reason (optional, shown to the person when they sign in)</label>
+            <textarea value={reason} onChange={e => setReason(e.target.value)} className="input resize-none" rows={3} maxLength={500}/>
+            <div className="flex gap-3">
+              <button onClick={() => setRejecting(false)} className="btn-secondary flex-1">Back</button>
+              <button onClick={reject} disabled={saving} className="btn-danger flex-1">{saving ? "Rejecting..." : "Reject registration"}</button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div>
+              <label className="label">Roles to grant (at least one)</label>
+              <RolePicker value={roles} onChange={setRoles}/>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => setRejecting(true)} className="btn-secondary flex-1 text-red-600">Reject</button>
+              <button onClick={approve} disabled={saving || roles.length === 0} className="btn-primary flex-1">{saving ? "Approving..." : "Approve"}</button>
+            </div>
+          </div>
+        )}
+      </motion.div>
+    </motion.div>
+  );
+}
+
 export default function StaffAccounts() {
   const { user } = useAuth();
   const [staff, setStaff] = useState([]);
@@ -120,6 +187,7 @@ export default function StaffAccounts() {
   const [roleFilter, setRoleFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
+  const [reviewing, setReviewing] = useState(null);
 
   const fetchAll = () => {
     setLoading(true);
@@ -140,8 +208,10 @@ export default function StaffAccounts() {
   };
 
   const q = search.toLowerCase();
+  const pending = staff.filter(u => u.status === "pending");
   const filtered = staff.filter(u =>
-    (roleFilter === "all" || u.roles?.includes(roleFilter)) &&
+    u.status !== "pending" &&
+    (roleFilter === "all" || (roleFilter === "rejected" ? u.status === "rejected" : u.roles?.includes(roleFilter))) &&
     [u.name, u.email, u.employee_id].some(v => v?.toLowerCase().includes(q))
   );
 
@@ -150,12 +220,33 @@ export default function StaffAccounts() {
       <div className="page-header flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h1 className="page-title flex items-center gap-2"><UsersIcon size={22}/> Staff Accounts</h1>
-          <p className="page-subtitle">Create accounts, assign roles and deactivate staff. One person can hold several roles.</p>
+          <p className="page-subtitle">Approve registrations, create accounts, assign roles and deactivate staff. One person can hold several roles.</p>
         </div>
         <motion.button onClick={() => setEditing("new")} className="btn-primary" whileTap={{ scale: 0.97 }}>
           <UserPlus size={16}/> New Account
         </motion.button>
       </div>
+
+      {pending.length > 0 && (
+        <div className="card overflow-hidden border-l-4 border-amber-400">
+          <div className="px-5 py-3 border-b border-slate-100 dark:border-slate-800 flex items-center gap-2">
+            <Clock size={16} className="text-amber-500"/>
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Pending approval ({pending.length})</h2>
+          </div>
+          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+            {pending.map(u => (
+              <div key={u.id} className="flex items-center gap-4 px-5 py-3 flex-wrap sm:flex-nowrap">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{u.name}</p>
+                  <p className="text-xs text-slate-400 truncate">{u.employee_id ? u.employee_id + " · " : ""}{u.email}</p>
+                </div>
+                <span className="text-xs text-slate-400">{u.created_at ? new Date(u.created_at).toLocaleDateString("en-MY", { day: "numeric", month: "short", year: "numeric" }) : ""}</span>
+                <button onClick={() => setReviewing(u)} className="btn-primary px-3 py-1.5 text-xs"><UserCheck size={14}/> Review</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="card p-3 flex items-center gap-3 flex-1">
@@ -163,10 +254,10 @@ export default function StaffAccounts() {
           <input value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 bg-transparent outline-none text-sm text-slate-700 dark:text-slate-300 placeholder-slate-400" placeholder="Search by name, email or ID…"/>
         </div>
         <div className="card p-1 flex gap-1 flex-wrap">
-          {["all", ...ROLE_OPTIONS.map(o => o.value)].map(r => (
+          {["all", ...ROLE_OPTIONS.map(o => o.value), "rejected"].map(r => (
             <button key={r} onClick={() => setRoleFilter(r)}
               className={clsx("px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors", roleFilter === r ? "bg-primary-600 text-white" : "text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800")}>
-              {r === "all" ? "All" : roleLabel(r)}
+              {r === "all" ? "All" : r === "rejected" ? "Rejected" : roleLabel(r)}
             </button>
           ))}
         </div>
@@ -189,13 +280,16 @@ export default function StaffAccounts() {
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-slate-900 dark:text-white truncate">{u.name} {u.id === user?.id && <span className="text-xs text-slate-400">(you)</span>}</p>
                   <p className="text-xs text-slate-400 truncate">{u.employee_id ? u.employee_id + " · " : ""}{u.email}</p>
+                  {u.status === "rejected" && <p className="text-xs text-red-500 truncate">Rejected{u.reject_reason ? `: ${u.reject_reason}` : ""}</p>}
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {u.roles?.length ? u.roles.map(r => <span key={r} className={roleBadge(r)}>{roleLabel(r)}</span>) : <span className="badge-gray">No roles</span>}
                 </div>
-                <span className={u.is_active ? "badge-green" : "badge-gray"}>{u.is_active ? "Active" : "Inactive"}</span>
+                {u.status === "rejected"
+                  ? <span className="badge-red">Rejected</span>
+                  : <span className={u.is_active ? "badge-green" : "badge-gray"}>{u.is_active ? "Active" : "Inactive"}</span>}
                 <div className="flex items-center gap-1">
-                  <button onClick={() => setEditing(u)} className="btn-ghost p-1.5 rounded-lg" title="Edit"><Pencil size={14}/></button>
+                  {u.status !== "rejected" && <button onClick={() => setEditing(u)} className="btn-ghost p-1.5 rounded-lg" title="Edit"><Pencil size={14}/></button>}
                   {u.id !== user?.id && (
                     <button onClick={() => handleDelete(u)} className="btn-ghost p-1.5 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20" title="Delete"><Trash2 size={14}/></button>
                   )}
@@ -207,6 +301,13 @@ export default function StaffAccounts() {
       </div>
 
       <AnimatePresence>
+        {reviewing && (
+          <RegistrationModal
+            account={reviewing}
+            onClose={() => setReviewing(null)}
+            onDone={() => { setReviewing(null); fetchAll(); }}
+          />
+        )}
         {editing && (
           <StaffModal
             staff={editing === "new" ? null : editing}

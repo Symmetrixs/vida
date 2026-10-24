@@ -214,14 +214,14 @@ def _label(supabase: Client, job: dict) -> str:
 
 
 def _scan_inspection(supabase: Client, inspection_id: str) -> Optional[dict]:
-    photos = supabase.table("photos").select("filename").eq("inspection_id", inspection_id).execute().data or []
+    photos = supabase.table("photos").select("id, filename").eq("inspection_id", inspection_id).execute().data or []
     bucket = supabase.storage.from_(PHOTO_BUCKET)
     counts = {}
     try:
         for photo in photos:
             if not photo.get("filename"):
                 continue
-            for label, n in count_labels(scan_image_bytes(bucket.download(photo["filename"]))).items():
+            for label, n in count_labels(scan_image_bytes(bucket.download(photo["filename"]), f"photo={photo.get('id')} before-job")).items():
                 counts[label] = counts.get(label, 0) + n
     except Exception as e:
         print(f"[VIDA] before scan failed for inspection {inspection_id}: {e}")
@@ -398,8 +398,9 @@ def get_job(job_id: str, user: dict = Depends(get_current_user)):
     photos = supabase.table("photos").select("id, url, description").eq("inspection_id", inspection_id).order("created_at").execute().data or []
     findings = (
         supabase.table("findings")
-        .select("id, photo_id, defect_type, severity, confidence, location_description")
+        .select("id, photo_id, defect_type, severity, confidence, source, location_description")
         .eq("inspection_id", inspection_id)
+        .is_("dismissed_at", "null")
         .execute()
         .data
         or []
@@ -543,7 +544,7 @@ def upload_completion_photo(job_id: str, file: UploadFile = File(...), worker: d
     bucket.upload(filename, contents, {"content-type": file.content_type})
 
     try:
-        detections = scan_image_bytes(contents)
+        detections = scan_image_bytes(contents, f"completion job={job['id']} file={filename}")
         scanned_at = _now()
     except Exception as e:
         print(f"[VIDA] completion photo scan failed for job {job['id']}: {e}")

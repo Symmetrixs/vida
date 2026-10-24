@@ -123,7 +123,7 @@ def test_job_creation_refuses_missing_or_duplicate(client, login, monkeypatch):
 
 def test_create_assigned_job_scans_before_photos_and_logs_history(client, login, monkeypatch):
     db = _create_db(monkeypatch)
-    monkeypatch.setattr(repair, "scan_image_bytes", lambda data: [{"label": "crack"}, {"label": "rust"}])
+    monkeypatch.setattr(repair, "scan_image_bytes", lambda data, source="": [{"label": "crack"}, {"label": "rust"}])
     due = (date.today() + timedelta(days=3)).isoformat()
     login(FM)
     response = client.post("/repairs/", json={"inspection_id": "insp1", "worker_id": "m1", "due_date": due, "note": "Use epoxy"})
@@ -143,7 +143,7 @@ def test_create_assigned_job_scans_before_photos_and_logs_history(client, login,
 def test_create_open_job_for_the_board_even_when_the_model_is_down(client, login, monkeypatch):
     db = _create_db(monkeypatch)
 
-    def broken(data):
+    def broken(data, source=""):
         raise RuntimeError("Model not found")
 
     monkeypatch.setattr(repair, "scan_image_bytes", broken)
@@ -267,7 +267,7 @@ def test_facility_manager_assigns_an_open_job(client, login, monkeypatch):
 def test_completion_photo_is_scanned_on_upload(client, login, monkeypatch):
     working = dict(JOB, status="in_progress", assigned_to="m1", assignment_type="claimed", round=2)
     db = _db(monkeypatch, job=working, **{"repair_photos:select": []})
-    monkeypatch.setattr(repair, "scan_image_bytes", lambda data: [{"label": "crack", "score": 0.4}])
+    monkeypatch.setattr(repair, "scan_image_bytes", lambda data, source="": [{"label": "crack", "score": 0.4}])
     login(MAINT)
     response = client.post("/repairs/j1/photos", files={"file": ("after.jpg", _image(), "image/jpeg")})
     assert response.status_code == 201
@@ -286,7 +286,7 @@ def test_upload_survives_scan_failure_and_respects_status(client, login, monkeyp
     working = dict(JOB, status="in_progress", assigned_to="m1", assignment_type="claimed")
     _db(monkeypatch, job=working, **{"repair_photos:select": []})
 
-    def broken(data):
+    def broken(data, source=""):
         raise RuntimeError("Model not found")
 
     monkeypatch.setattr(repair, "scan_image_bytes", broken)

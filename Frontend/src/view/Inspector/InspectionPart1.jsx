@@ -6,6 +6,7 @@ import api from "../../api/axios.js";
 import toast from "react-hot-toast";
 import { apiErrorText } from "../../utils/apiError.js";
 import { floorOptions } from "../../utils/floors.js";
+import LocationPicker from "../../components/LocationPicker.jsx";
 
 const SS_KEY = "vida_part1_draft";
 const ssSave = v => { try { sessionStorage.setItem(SS_KEY, JSON.stringify(v)); } catch {} };
@@ -97,7 +98,7 @@ export default function InspectionPart1() {
 
         <div>
           <label className="label">Building *</label>
-          <select value={form.building_id} onChange={e => { set("building_id", e.target.value); set("floor_level", ""); }} className="input" required>
+          <select value={form.building_id} onChange={e => { set("building_id", e.target.value); set("floor_level", ""); set("area_inspected", ""); }} className="input" required>
             <option value="">Select a building…</option>
             {buildings.map(b => <option key={b.id} value={b.id}>{b.name} ({b.code})</option>)}
           </select>
@@ -119,14 +120,14 @@ export default function InspectionPart1() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="label">Floor Level *</label>
-            <select value={form.floor_level} onChange={e => set("floor_level", e.target.value)} className="input" required disabled={!form.building_id}>
+            <select value={form.floor_level} onChange={e => { set("floor_level", e.target.value); set("area_inspected", ""); }} className="input" required disabled={!form.building_id}>
               <option value="">{form.building_id ? "Select floor…" : "Select building first"}</option>
               {selBuilding && floorOptions(selBuilding.floors).map(f => <option key={f} value={f}>{f}</option>)}
             </select>
           </div>
           <div>
             <label className="label">Area Inspected</label>
-            <input value={form.area_inspected} onChange={e => set("area_inspected", e.target.value)} className="input" placeholder="e.g. Exterior facade, Corridor"/>
+            <LocationPicker buildingId={form.building_id} floor={form.floor_level} value={form.area_inspected} onChange={v => set("area_inspected", v)} otherPlaceholder="e.g. Exterior facade, corridor near BK15"/>
           </div>
         </div>
 

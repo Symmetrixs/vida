@@ -4,8 +4,8 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from supabase import create_client, Client
-from auth import MANAGER_ROLES, get_current_user, has_any_role, require_roles
-from complaint import SEVERITIES, ReviewBody, apply_review, complaint_snapshot, mark_started, notify_inspection_submitted, release_complaint, sync_complaint
+from auth import MANAGER_ROLES, attach_user_names, get_current_user, has_any_role, require_roles, users_with_roles
+from complaint import OPEN_STATUSES, SEVERITIES, ReviewBody, apply_review, complaint_snapshot, mark_started, notify_inspection_submitted, overdue_info, release_complaint, sync_complaint
 from public import format_inspection_reference, format_reference, format_repair_reference
 
 router = APIRouter()
@@ -17,7 +17,7 @@ require_review_reader = require_roles(*MANAGER_ROLES)
 QUEUE_COLUMNS = (
     "id, ref_no, title, floor_level, area_inspected, submitted_at, severity, severity_note, assessed_at, "
     "buildings(name, code), users!inspector_id(name), assessor:users!assessed_by(name), "
-    "complaints(ref_no), findings(severity), photos(id), repair_jobs(id, ref_no, status)"
+    "complaints(ref_no), findings(severity, dismissed_at), photos(id), repair_jobs(id, ref_no, status)"
 )
 REVIEW_COLUMNS = (
     "id, ref_no, title, status, inspection_date, weather_condition, floor_level, area_inspected, description, remarks, "
@@ -153,12 +153,48 @@ def review_queue(reviewer: dict = Depends(require_facility_manager)):
     )
     for row in rows:
         review_shape(row)
-        findings = row.pop("findings", None) or []
+        findings = [f for f in (row.pop("findings", None) or []) if not f.get("dismissed_at")]
         row["finding_count"] = len(findings)
         row["highest_finding_severity"] = highest_severity(findings)
         row["photo_count"] = len(row.pop("photos", None) or [])
         row["reviewed"] = row.get("severity") is not None
     return rows
+
+
+def inspector_workload(inspector: dict, inspections: list) -> dict:
+    mine = [i for i in inspections if i.get("inspector_id") == inspector["id"]]
+    counts = {"assigned": 0, "in_progress": 0, "awaiting_severity": 0, "overdue": 0, "done": 0}
+    for insp in mine:
+        complaint = first_embed(insp.get("complaints"))
+        if insp.get("severity"):
+            counts["done"] += 1
+        elif insp.get("status") == "submitted":
+            counts["awaiting_severity"] += 1
+        elif complaint and complaint.get("status") == "assigned":
+            counts["assigned"] += 1
+        else:
+            counts["in_progress"] += 1
+        if complaint and complaint.get("status") in OPEN_STATUSES and overdue_info(complaint["status"], complaint.get("due_date"))[0]:
+            counts["overdue"] += 1
+    return {**inspector, **counts, "active": counts["assigned"] + counts["in_progress"]}
+
+
+@router.get("/staff")
+def inspector_staff(reader: dict = Depends(require_review_reader)):
+    supabase = get_supabase()
+    inspectors = users_with_roles(supabase, ("inspector",), "id, name, email")
+    ids = [i["id"] for i in inspectors]
+    inspections = []
+    if ids:
+        inspections = (
+            supabase.table("inspections")
+            .select("id, inspector_id, status, severity, complaints(status, due_date)")
+            .in_("inspector_id", ids)
+            .execute()
+            .data
+            or []
+        )
+    return [inspector_workload(i, inspections) for i in inspectors]
 
 
 @router.get("/{inspection_id}/review")
@@ -170,7 +206,7 @@ def get_review(inspection_id: str, reviewer: dict = Depends(require_review_reade
     inspection = review_shape(rows[0])
     photos = (
         supabase.table("photos")
-        .select("id, url, description, created_at")
+        .select("id, url, description, created_at, scanned_at")
         .eq("inspection_id", inspection_id)
         .order("created_at")
         .execute()
@@ -179,12 +215,15 @@ def get_review(inspection_id: str, reviewer: dict = Depends(require_review_reade
     )
     findings = (
         supabase.table("findings")
-        .select("id, photo_id, defect_type, severity, confidence, location_description, notes")
+        .select("id, photo_id, defect_type, severity, confidence, source, location_description, notes, created_by, edited_by, created_at")
         .eq("inspection_id", inspection_id)
+        .is_("dismissed_at", "null")
+        .order("created_at")
         .execute()
         .data
         or []
     )
+    attach_user_names(supabase, findings, "created_by", "edited_by")
     return {
         "inspection":               inspection,
         "complaint":                complaint_snapshot(supabase, inspection_id),
@@ -281,6 +320,13 @@ def delete_inspection(inspection_id: str, current_user: dict = Depends(get_curre
 def submit_inspection(inspection_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
     existing = assert_editable(supabase, inspection_id, current_user)
+    photos = supabase.table("photos").select("id, scanned_at").eq("inspection_id", inspection_id).order("created_at").execute().data or []
+    unscanned = [p["id"] for p in photos if not p.get("scanned_at")]
+    if unscanned:
+        raise HTTPException(status_code=409, detail={
+            "msg":       f"Scan every photo with the AI before submitting. {len(unscanned)} of {len(photos)} photo(s) have not been scanned.",
+            "unscanned": unscanned,
+        })
     result = supabase.table("inspections").update({
         "status": "submitted",
         "submitted_at": datetime.now(timezone.utc).isoformat(),
@@ -302,5 +348,5 @@ def inspection_complaint(inspection_id: str, current_user: dict = Depends(get_cu
 def inspection_findings(inspection_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
     assert_viewer(supabase, inspection_id, current_user)
-    result = supabase.table("findings").select("*").eq("inspection_id", inspection_id).execute()
+    result = supabase.table("findings").select("*").eq("inspection_id", inspection_id).is_("dismissed_at", "null").execute()
     return result.data or []

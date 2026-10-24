@@ -4,6 +4,7 @@ import { AnimatePresence } from "framer-motion";
 
 import Login           from "./view/Auth/Login.jsx";
 import ForgotPassword  from "./view/Auth/ForgotPassword.jsx";
+import Register        from "./view/Auth/Register.jsx";
 import ResetPassword   from "./view/Auth/ResetPassword.jsx";
 import ReportDefect    from "./view/Public/ReportDefect.jsx";
 
@@ -72,6 +73,7 @@ export default function App() {
     <AnimatePresence mode="wait">
       <Routes>
         <Route path="/login"           element={user ? <Navigate to="/" replace /> : <Login />} />
+        <Route path="/register"        element={user ? <Navigate to="/" replace /> : <Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password"  element={<ResetPassword />} />
         <Route path="/report-defect"   element={<ReportDefect />} />

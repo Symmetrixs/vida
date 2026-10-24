@@ -7,8 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from supabase import create_client, Client
 
-from ai_detection import count_labels, scan_image_bytes
-from auth import active_user_with_role, has_any_role, require_roles, users_with_roles
+from auth import active_user_with_role, attach_user_names, has_any_role, require_roles, users_with_roles
 from public import COMPLAINT_BUCKET, format_inspection_reference, format_reference
 
 router = APIRouter()
@@ -390,7 +389,7 @@ def get_complaint(complaint_id: str, reviewer: dict = Depends(require_manager)):
     complaint["report"] = _latest_reports(supabase, [inspection_id]).get(inspection_id) if inspection_id else None
     if complaint["inspection"]:
         complaint["inspection"]["photo_count"] = len(supabase.table("photos").select("id").eq("inspection_id", inspection_id).execute().data or [])
-        complaint["inspection"]["finding_count"] = len(supabase.table("findings").select("id").eq("inspection_id", inspection_id).execute().data or [])
+        complaint["inspection"]["finding_count"] = len(supabase.table("findings").select("id").eq("inspection_id", inspection_id).is_("dismissed_at", "null").execute().data or [])
     return complaint
 
 
@@ -435,12 +434,15 @@ def get_review(complaint_id: str, reviewer: dict = Depends(require_review_reader
         )
         findings = (
             supabase.table("findings")
-            .select("id, photo_id, defect_type, severity, confidence, location_description, notes")
+            .select("id, photo_id, defect_type, severity, confidence, source, location_description, notes, created_by, edited_by, created_at")
             .eq("inspection_id", inspection_id)
+            .is_("dismissed_at", "null")
+            .order("created_at")
             .execute()
             .data
             or []
         )
+    attach_user_names(supabase, findings, "created_by", "edited_by")
     ranked = [f["severity"] for f in findings if f.get("severity") in SEVERITIES]
     complaint.pop("inspection", None)
     return {
@@ -464,41 +466,6 @@ def review_complaint(complaint_id: str, body: ReviewBody, reviewer: dict = Depen
         raise HTTPException(status_code=409, detail="This complaint has already been handled")
     apply_review(supabase, complaint["inspection_id"], reviewer, body.severity, body.note)
     return {"reference": format_reference(complaint["ref_no"]), "status": "reviewed", "severity": body.severity}
-
-
-@router.post("/{complaint_id}/scan")
-def scan_complaint_photos(complaint_id: str, reviewer: dict = Depends(require_manager)):
-    supabase = get_supabase()
-    photos = (
-        supabase.table("complaint_photos")
-        .select("id, storage_path, detections, scanned_at")
-        .eq("complaint_id", complaint_id)
-        .order("created_at")
-        .execute()
-        .data
-        or []
-    )
-    bucket = supabase.storage.from_(COMPLAINT_BUCKET)
-    results = []
-    for photo in photos:
-        detections = photo.get("detections") if photo.get("scanned_at") else None
-        if not photo.get("scanned_at"):
-            try:
-                detections = scan_image_bytes(bucket.download(photo["storage_path"]))
-                supabase.table("complaint_photos").update({
-                    "detections": detections,
-                    "scanned_at": datetime.now(timezone.utc).isoformat(),
-                }).eq("id", photo["id"]).execute()
-            except Exception as e:
-                print(f"[VIDA] complaint photo scan failed for {photo['id']}: {e}")
-                detections = None
-        results.append({
-            "id":      photo["id"],
-            "scanned": detections is not None,
-            "total":   len(detections or []),
-            "counts":  count_labels(detections),
-        })
-    return results
 
 
 @router.post("/{complaint_id}/convert")

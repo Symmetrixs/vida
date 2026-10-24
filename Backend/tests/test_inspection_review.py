@@ -146,37 +146,7 @@ def test_detection_is_open_to_maintenance_and_facility_managers(client, login, u
     assert client.post("/ai/detect", files={"file": ("a.jpg", buffer.getvalue(), "image/jpeg")}).status_code != 403
 
 
-def test_complaint_photo_scan_runs_once_and_only_for_facility_managers(client, login, monkeypatch):
-    db = FakeSupabase(responses={("complaint_photos", "select"): [
-        {"id": "cp1", "storage_path": "c1/a.jpg", "detections": None, "scanned_at": None},
-        {"id": "cp2", "storage_path": "c1/b.jpg", "detections": [{"label": "mold"}], "scanned_at": "2026-10-22T01:00:00+00:00"},
-    ]})
-    calls = []
-    monkeypatch.setattr(complaint, "get_supabase", lambda: db)
-    monkeypatch.setattr(complaint, "scan_image_bytes", lambda data: calls.append(data) or [{"label": "crack"}, {"label": "crack"}])
-    for user in (ADMIN, INSPECTOR, MAINT):
-        login(user)
-        assert client.post("/complaints/c1/scan").status_code == 403
-
+def test_complaint_photos_are_never_scanned(client, login):
     login(FM)
-    body = client.post("/complaints/c1/scan").json()
-    assert len(calls) == 1
-    assert body == [
-        {"id": "cp1", "scanned": True, "total": 2, "counts": {"crack": 2}},
-        {"id": "cp2", "scanned": True, "total": 1, "counts": {"mold": 1}},
-    ]
-    table, payload, filters = db.updated[0]
-    assert table == "complaint_photos" and filters == {"id": "cp1"} and payload["scanned_at"]
+    assert client.post("/complaints/c1/scan").status_code in (404, 405)
 
-
-def test_complaint_photo_scan_failure_is_not_fatal(client, login, monkeypatch):
-    db = FakeSupabase(responses={("complaint_photos", "select"): [{"id": "cp1", "storage_path": "c1/a.jpg", "detections": None, "scanned_at": None}]})
-    monkeypatch.setattr(complaint, "get_supabase", lambda: db)
-
-    def broken(data):
-        raise RuntimeError("Model not found")
-
-    monkeypatch.setattr(complaint, "scan_image_bytes", broken)
-    login(FM)
-    assert client.post("/complaints/c1/scan").json() == [{"id": "cp1", "scanned": False, "total": 0, "counts": {}}]
-    assert db.updated == []

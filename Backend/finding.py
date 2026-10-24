@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from supabase import create_client, Client
-from auth import MANAGER_ROLES, get_current_user, has_any_role
+from auth import MANAGER_ROLES, attach_user_names, get_current_user, has_any_role
 from complaint import sync_complaint
 from inspection import assert_editable, assert_viewer
 
@@ -22,9 +22,7 @@ class FindingCreate(BaseModel):
     inspection_id: str
     defect_type: str
     severity: str
-    confidence: Optional[float] = None
     location_description: Optional[str] = None
-    bbox: Optional[dict] = None
     photo_id: Optional[str] = None
     notes: Optional[str] = None
 
@@ -37,24 +35,36 @@ class FindingUpdate(BaseModel):
     notes: Optional[str] = None
 
 
-def _assert_finding_owner(supabase: Client, finding_id: str, user: dict):
-    rows = supabase.table("findings").select("inspection_id").eq("id", finding_id).execute().data
-    if not rows:
+def _check_values(defect_type: Optional[str], severity: Optional[str]):
+    if defect_type is not None and defect_type not in DEFECT_TYPES:
+        raise HTTPException(status_code=400, detail=f"Invalid defect type. Must be one of: {DEFECT_TYPES}")
+    if severity is not None and severity not in SEVERITIES:
+        raise HTTPException(status_code=400, detail=f"Invalid severity. Must be one of: {SEVERITIES}")
+
+
+def _load_editable_finding(supabase: Client, finding_id: str, user: dict) -> dict:
+    rows = supabase.table("findings").select("id, inspection_id, source, dismissed_at").eq("id", finding_id).execute().data
+    if not rows or rows[0].get("dismissed_at"):
         raise HTTPException(status_code=404, detail="Finding not found")
     assert_editable(supabase, rows[0]["inspection_id"], user)
+    return rows[0]
+
+
+def shape_findings(supabase: Client, rows: list) -> list:
+    return attach_user_names(supabase, rows, "created_by", "edited_by")
 
 
 @router.get("/")
 def list_findings(inspection_id: Optional[str] = None, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    query = supabase.table("findings").select("*")
+    query = supabase.table("findings").select("*").is_("dismissed_at", "null")
     if inspection_id:
         assert_viewer(supabase, inspection_id, current_user)
         query = query.eq("inspection_id", inspection_id)
     elif not has_any_role(current_user, *MANAGER_ROLES):
         raise HTTPException(status_code=403, detail="Not authorised")
-    result = query.order("created_at", desc=True).execute()
-    return result.data or []
+    result = query.order("created_at", desc=False).execute()
+    return shape_findings(supabase, result.data or [])
 
 
 @router.get("/{finding_id}")
@@ -64,19 +74,17 @@ def get_finding(finding_id: str, current_user: dict = Depends(get_current_user))
     if not rows:
         raise HTTPException(status_code=404, detail="Finding not found")
     assert_viewer(supabase, rows[0]["inspection_id"], current_user)
-    return rows[0]
+    return shape_findings(supabase, rows)[0]
 
 
 @router.post("/", status_code=201)
 def create_finding(body: FindingCreate, current_user: dict = Depends(get_current_user)):
-    if body.defect_type not in DEFECT_TYPES:
-        raise HTTPException(status_code=400, detail=f"Invalid defect type. Must be one of: {DEFECT_TYPES}")
-    if body.severity not in SEVERITIES:
-        raise HTTPException(status_code=400, detail=f"Invalid severity. Must be one of: {SEVERITIES}")
-
+    _check_values(body.defect_type, body.severity)
     supabase = get_supabase()
     assert_editable(supabase, body.inspection_id, current_user)
     data = body.model_dump()
+    data["source"] = "manual"
+    data["confidence"] = None
     data["created_by"] = current_user["id"]
     data["status"] = "open"
     data["created_at"] = datetime.now(timezone.utc).isoformat()
@@ -84,42 +92,38 @@ def create_finding(body: FindingCreate, current_user: dict = Depends(get_current
     if not result.data:
         raise HTTPException(status_code=500, detail="Failed to create finding")
     sync_complaint(body.inspection_id, current_user, started=True)
-    return result.data[0]
+    return shape_findings(supabase, result.data)[0]
 
 
 @router.put("/{finding_id}")
 def update_finding(finding_id: str, body: FindingUpdate, current_user: dict = Depends(get_current_user)):
+    _check_values(body.defect_type, body.severity)
     supabase = get_supabase()
-    _assert_finding_owner(supabase, finding_id, current_user)
+    _load_editable_finding(supabase, finding_id, current_user)
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    updates["edited_by"] = current_user["id"]
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
     result = supabase.table("findings").update(updates).eq("id", finding_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Finding not found")
-    return result.data[0]
-
-
-@router.delete("/by-photo/{photo_id}")
-def delete_findings_by_photo(photo_id: str, current_user: dict = Depends(get_current_user)):
-    supabase = get_supabase()
-    photos = supabase.table("photos").select("inspection_id").eq("id", photo_id).execute().data
-    if not photos:
-        raise HTTPException(status_code=404, detail="Photo not found")
-    assert_editable(supabase, photos[0]["inspection_id"], current_user)
-    finding_ids = [f["id"] for f in (supabase.table("findings").select("id").eq("photo_id", photo_id).execute().data or [])]
-    if finding_ids:
-        supabase.table("recommendations").delete().in_("finding_id", finding_ids).execute()
-    supabase.table("findings").delete().eq("photo_id", photo_id).execute()
-    return {"deleted": len(finding_ids)}
+    return shape_findings(supabase, result.data)[0]
 
 
 @router.delete("/{finding_id}")
 def delete_finding(finding_id: str, current_user: dict = Depends(get_current_user)):
     supabase = get_supabase()
-    _assert_finding_owner(supabase, finding_id, current_user)
+    row = _load_editable_finding(supabase, finding_id, current_user)
+    if row.get("source") == "ai":
+        now = datetime.now(timezone.utc).isoformat()
+        supabase.table("findings").update({
+            "dismissed_at": now,
+            "dismissed_by": current_user["id"],
+            "updated_at":   now,
+        }).eq("id", finding_id).execute()
+        return {"message": "Finding dismissed", "dismissed": True}
     supabase.table("recommendations").delete().eq("finding_id", finding_id).execute()
     supabase.table("findings").delete().eq("id", finding_id).execute()
-    return {"message": "Finding deleted"}
+    return {"message": "Finding deleted", "dismissed": False}
 
 
 @router.get("/stats/summary")
@@ -127,7 +131,7 @@ def findings_summary(current_user: dict = Depends(get_current_user)):
     if not has_any_role(current_user, *MANAGER_ROLES):
         raise HTTPException(status_code=403, detail="Not authorised")
     supabase = get_supabase()
-    findings = supabase.table("findings").select("defect_type, severity, status").execute().data or []
+    findings = supabase.table("findings").select("defect_type, severity, status").is_("dismissed_at", "null").execute().data or []
 
     by_type = {}
     by_severity = {}

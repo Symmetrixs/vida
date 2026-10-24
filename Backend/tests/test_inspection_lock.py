@@ -20,7 +20,7 @@ WRITES = [
     ("delete", "/photos/p1",               {}),
     ("post",   "/findings/",               {"json": {"inspection_id": "i1", "defect_type": "crack", "severity": "high"}}),
     ("put",    "/findings/f1",             {"json": {"notes": "Wider now"}}),
-    ("delete", "/findings/by-photo/p1",    {}),
+    ("post",   "/photos/p1/scan",          {}),
     ("delete", "/findings/f1",             {}),
     ("post",   "/groups/i1/save",          {"json": {"groups": []}}),
     ("delete", "/groups/i1",               {}),

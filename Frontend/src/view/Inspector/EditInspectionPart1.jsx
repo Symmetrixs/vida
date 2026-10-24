@@ -7,6 +7,7 @@ import toast from "react-hot-toast";
 import { apiErrorText } from "../../utils/apiError.js";
 import InspectionPhoto from "./InspectionPhoto.jsx";
 import { floorOptions } from "../../utils/floors.js";
+import LocationPicker from "../../components/LocationPicker.jsx";
 import { SEVERITY_CLASS, fmtDateTime } from "../../utils/complaintUi.js";
 
 const fmtDay = (d) => new Date(`${d}T00:00:00`).toLocaleDateString("en-MY", { dateStyle: "medium" });
@@ -84,6 +85,7 @@ export default function EditInspectionPart1() {
   const [review, setReview] = useState(null);
   const [complaint, setComplaint] = useState(null);
   const [reference, setReference] = useState(null);
+  const [photoState, setPhotoState] = useState({ unscannedIds: [] });
 
   useEffect(() => {
     Promise.all([
@@ -126,7 +128,7 @@ export default function EditInspectionPart1() {
   const set = (k, v) => setForm(f => ({...f, [k]: v}));
 
   const handleBuildingChange = (e) => {
-    setForm(f => ({ ...f, building_id: e.target.value, floor_level: "" }));
+    setForm(f => ({ ...f, building_id: e.target.value, floor_level: "", area_inspected: "" }));
     setCustomFloor(false);
   };
 
@@ -137,7 +139,7 @@ export default function EditInspectionPart1() {
       setForm(f => ({ ...f, floor_level: "" }));
     } else {
       setCustomFloor(false);
-      setForm(f => ({ ...f, floor_level: v }));
+      setForm(f => ({ ...f, floor_level: v, area_inspected: f.floor_level === v ? f.area_inspected : "" }));
     }
   };
 
@@ -292,7 +294,7 @@ export default function EditInspectionPart1() {
             </div>
             <div>
               <label className="label">Area Inspected</label>
-              <input value={form.area_inspected} onChange={e => set("area_inspected", e.target.value)} className="input" placeholder="Exterior"/>
+              <LocationPicker buildingId={form.building_id} floor={form.floor_level} value={form.area_inspected} onChange={v => set("area_inspected", v)} otherPlaceholder="e.g. Exterior facade, corridor near BK15"/>
             </div>
           </div>
 
@@ -313,10 +315,13 @@ export default function EditInspectionPart1() {
       {!review && tab === "photos" && (
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
           {complaint && (
-            <p className="text-xs text-slate-500 dark:text-slate-400">Add any new photos, run the AI scan, then press Save &amp; Submit. Facility managers are notified to review it.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Add any new photos, run the AI scan on every photo, then press Save &amp; Submit. Facility managers are notified to review it.</p>
           )}
-          <InspectionPhoto inspectionId={id} embedded />
-          <div className="flex justify-end pt-2">
+          <InspectionPhoto inspectionId={id} embedded onStateChange={setPhotoState}/>
+          <div className="flex justify-end items-center gap-3 pt-2">
+            {photoState.unscannedIds.length > 0 && (
+              <span className="text-xs text-amber-600">Scan the {photoState.unscannedIds.length} unscanned photo(s) before submitting</span>
+            )}
             <motion.button
               onClick={async () => {
                 try {
@@ -325,6 +330,7 @@ export default function EditInspectionPart1() {
                   navigate("/inspections");
                 } catch (e) { toast.error(apiErrorText(e, "Submit failed")); }
               }}
+              disabled={photoState.unscannedIds.length > 0}
               className="btn-primary flex items-center gap-2"
               whileTap={{ scale: 0.97 }}
             >

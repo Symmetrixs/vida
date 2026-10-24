@@ -206,15 +206,15 @@ export default function Analytics() {
       ["By Building",           bldgRows],
     ];
     sheets.forEach(([title, rows], i) => {
-      zip.file("xl/worksheets/sheet" + (i+1) + ".xml", mkSheet("VIDA Analytics — " + title, rows));
+      zip.file("xl/worksheets/sheet" + (i+1) + ".xml", mkSheet("VIDA Statistics — " + title, rows));
     });
 
     const blob = await zip.generateAsync({ type: "blob", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a");
-    a.href = url; a.download = "VIDA_Analytics_" + safeDate + ".xlsx"; a.click();
+    a.href = url; a.download = "VIDA_Statistics_" + safeDate + ".xlsx"; a.click();
     URL.revokeObjectURL(url);
-    toast.success("Analytics exported as Excel");
+    toast.success("Statistics exported as Excel");
   };
 
   const defectData   = useMemo(() => (data?.defect_by_type || []).map(d => ({ ...d, label: d.type?.replace(/_/g, " ") })), [data]);
@@ -233,7 +233,7 @@ export default function Analytics() {
 
   if (loading && !data) return (
     <div className="space-y-6">
-      <div className="page-header"><h1 className="page-title">Analytics</h1></div>
+      <div className="page-header"><h1 className="page-title">Statistics</h1></div>
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">{[...Array(5)].map((_, i) => <div key={i} className="card p-4"><div className="skeleton h-16 rounded-xl"/></div>)}</div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">{[...Array(4)].map((_, i) => <div key={i} className="card p-5"><div className="skeleton h-52 rounded-xl"/></div>)}</div>
     </div>
@@ -243,7 +243,7 @@ export default function Analytics() {
     <div className="space-y-6">
       <div className="page-header flex items-start justify-between flex-wrap gap-3">
         <div>
-          <h1 className="page-title flex items-center gap-2"><BarChart3 size={22}/> Analytics</h1>
+          <h1 className="page-title flex items-center gap-2"><BarChart3 size={22}/> Statistics</h1>
           <p className="page-subtitle">System-wide overview — all users, buildings, and defect trends</p>
         </div>
         <div className="flex items-center gap-2">
@@ -264,7 +264,7 @@ export default function Analytics() {
         {showFilters && (
           <motion.div className="card p-4 space-y-4" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} style={{ overflow: "hidden" }}>
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2"><Filter size={13}/> Filter Analytics</h3>
+              <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2"><Filter size={13}/> Filter Statistics</h3>
               {activeFilters > 0 && (
                 <button onClick={() => { setFilters(NO_FILTERS); fetchData(NO_FILTERS); }} className="text-xs text-red-500 hover:text-red-600 flex items-center gap-1">
                   <X size={11}/> Clear all
